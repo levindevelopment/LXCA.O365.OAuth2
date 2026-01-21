@@ -223,6 +223,61 @@ Recommended task settings:
 - Do not allow overlapping runs
 - Disable “Stop the task if it runs longer than…”
 
+### Step 4a — Task Scheduler trigger (recommended)
+
+Microsoft 365 SMTP OAuth2 access tokens typically have a ~60 minute lifetime.
+
+**Recommended rotation cadence:**
+- Run **every 45 minutes** (safe default)
+- Or run **every 50–55 minutes** if you want fewer refreshes
+- Avoid **60 minutes exactly** (clock drift + delays can cause expiry gaps)
+
+**Task Scheduler trigger:**
+- Trigger: **Daily**
+- Repeat task every: **45 minutes**
+- For a duration of: **Indefinitely** (or 1 day with “Stop at end of duration” unchecked)
+- Start time: pick a time that makes sense for your environment (e.g. `00:05`)
+
+**Reliability options (recommended):**
+- ✅ “Run task as soon as possible after a scheduled start is missed”
+- ✅ “If the task fails, restart every: 5 minutes (attempt 3 times)”
+- ❌ Do not allow overlapping runs
+
+Example elevated Powershell to create task:
+```powershell
+$TaskName  = "LXCA O365 SMTP Token Rotate"
+$User      = "DOMAIN\UserOrLocalUser"   # <-- change
+$Pwsh      = "C:\Program Files\PowerShell\7\pwsh.exe"
+
+$Wrapper   = "C:\Path\Run-LXCAO365RotateScheduled.ps1"        # <-- change
+$Config    = "C:\Path\lxca-o365-rotate.config.json"           # <-- change
+$Secrets   = "C:\Path\lxca-o365-rotate.secrets.xml"           # <-- change
+
+$Args = @(
+  "-NoProfile",
+  "-ExecutionPolicy", "Bypass",
+  "-File", "`"$Wrapper`"",
+  "-ConfigPath", "`"$Config`"",
+  "-SecretsPath", "`"$Secrets`""
+) -join " "
+
+$action  = New-ScheduledTaskAction -Execute $Pwsh -Argument $Args
+
+# Start now, then repeat every 45 minutes indefinitely
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
+  -RepetitionInterval (New-TimeSpan -Minutes 45) `
+  -RepetitionDuration ([TimeSpan]::MaxValue)
+
+$settings = New-ScheduledTaskSettingsSet `
+  -StartWhenAvailable `
+  -MultipleInstances IgnoreNew
+
+# You will be prompted for the password securely
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -User $User -RunLevel Highest
+```
+
+**Note:** Whatever account runs the task must be the same account that created the lxca-o365-rotate.secrets.xml (because DPAPI ties it to the user profile).
+
 ---
 
 ## Security considerations
