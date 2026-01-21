@@ -1,51 +1,80 @@
 # LXCA → Microsoft 365 SMTP OAuth2 Token Rotation
 
-This repo contains a PowerShell 7 script that updates the **OAuth2 bearer token** used by a Lenovo XClarity Administrator (LXCA) **Email Alert** forwarder (SMTP AUTH XOAUTH2).
+This repository provides a **PowerShell 7 script** to rotate OAuth2 bearer tokens used by **Lenovo XClarity Administrator (LXCA)** email alert forwarders configured with **SMTP OAuth2 (XOAUTH2)**.
 
-Primary intent:
-- Run on a schedule (Task Scheduler / cron)
-- Rotate the bearer token stored in a specific LXCA monitor
-- Avoid leaving LXCA sessions open (prevents “maximum active sessions exceeded”)
-
-**Production file:** `scripts/Rotate-LXCA-O365SmtpToken.ps1`
+The primary intent of this project is to enable **safe, automated token rotation** without manual GUI interaction, ensuring uninterrupted alert delivery via Microsoft 365.
 
 ---
 
-## What the rotator script does
+## Primary script
 
-1. Logs into LXCA (`POST /sessions`)
-2. Retrieves the target monitor (`GET /events/monitors/{id}`)
-3. Updates **only** the token field and description timestamp marker
-4. Writes the monitor back (`PUT /events/monitors/{id}`)
-5. Logs out (session cleanup in `finally`)
+**`scripts/Rotate-LXCA-O365SmtpToken.ps1`**
 
-The script is designed to be safe for scheduled execution (no interactive prompts, closes sessions).
+This is the **only file required for production use**.
+
+---
+
+## What the script does
+
+1. Authenticates to LXCA via REST (`POST /sessions`)
+2. Retrieves a specific Email Alert monitor (`GET /events/monitors/{id}`)
+3. Mints (or accepts) a fresh OAuth2 access token
+4. Updates **only**:
+   - `passwordEmail` (OAuth2 bearer token)
+   - `description` (timestamp marker for audit/traceability)
+5. Writes the update using `PUT /events/monitors/{id}`
+6. Logs out of LXCA to avoid session exhaustion
+
+No other monitor configuration is modified.
 
 ---
 
 ## Requirements
 
 ### PowerShell
-- **PowerShell 7+** (recommended/expected)
+- **PowerShell 7+** (mandatory)
+- Windows, Linux, or macOS supported
 
 ### LXCA
 - LXCA reachable over HTTPS
-- An existing **Email Alert** monitor configured for OAuth2 (or at least created and then set in GUI)
-- LXCA admin credentials for API calls
+- Existing **Email Alert forwarder**
+- Forwarder configured for:
+  - STARTTLS or SSL
+  - OAuth2 authentication
+- LXCA administrative credentials
 
-### Microsoft 365 / Entra (for real tokens)
-To rotate real tokens you’ll need an Entra App Registration and SMTP AUTH enabled for the mailbox.
-Inputs commonly required:
+### Microsoft 365 / Entra ID (for real tokens)
+Required only when rotating **real** tokens:
+
 - Tenant ID
 - Client ID
 - Client Secret
-- SMTP mailbox UPN (e.g. `alerts@yourdomain.com`)
+- SMTP AUTH enabled for the mailbox (e.g. `alerts@yourdomain.com`)
 
 ---
 
-## Script usage
+## Connectivity requirements (important)
 
-### List monitors (discover monitor IDs)
+The system executing the script **must have network access to all of the following**:
+
+- LXCA appliance (HTTPS)
+- Microsoft Entra token endpoints  
+  (`https://login.microsoftonline.com`)
+- Microsoft 365 SMTP endpoint  
+  (`smtp.office365.com:587`)
+
+This system **is not the LXCA appliance**.
+
+Typical placements:
+- Admin workstation
+- Management VM
+- Secure jump host
+
+---
+
+## Usage
+
+### Discover monitor IDs
 
 ```powershell
 pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
@@ -54,7 +83,9 @@ pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
   -ListMonitors
 ```
 
-### Rotate using a supplied token (lab/testing)
+---
+
+### Rotate using a supplied token (testing / validation)
 
 ```powershell
 pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
@@ -66,9 +97,9 @@ pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
   -DescriptionPrefix "TOKEN-ROTATE TEST"
 ```
 
-### Rotate by minting a token (production pattern)
+---
 
-If your script version supports minting, use:
+### Rotate using Entra OAuth2 (production)
 
 ```powershell
 pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
@@ -82,68 +113,82 @@ pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
   -SmtpUser "alerts@yourdomain.com"
 ```
 
-> Tip: In early phases you can rotate **dummy tokens** and validate that LXCA presents them on the wire (see SMTP capture section below).
+---
+
+## Token lifetime & rotation timing
+
+Microsoft 365 OAuth2 access tokens typically have a **60-minute lifetime**.
+
+### Recommended strategy
+
+- Schedule rotation **5–10 minutes before token expiry**
+- Typical cadence: **every 45–55 minutes**
+
+### Rotation flow
+
+1. Script requests a fresh OAuth2 access token from Entra
+2. Script updates the LXCA Email Alert monitor with the new token
+3. LXCA immediately begins using the new token for `AUTH XOAUTH2`
+4. Previous token expires naturally in Entra
+
+This ensures:
+- No SMTP authentication failures
+- No alert delivery gaps
+- No manual intervention
 
 ---
 
-## Scheduling
+## Windows Task Scheduler integration
 
-See `examples/` for a starting point.
+The script is explicitly designed for **non-interactive scheduled execution**.
 
-Recommendation:
-- Run slightly **shorter than your access token lifetime** (e.g. every 30–45 minutes depending on org policy).
+### Recommended task settings
+
+- Program: `pwsh.exe`
+- Run whether user is logged on or not
+- Run with highest privileges (if required)
+- Do **not** allow overlapping runs
+- Disable “Stop task if it runs longer than…”
+
+Examples provided in:
+- `examples/example-task.ps1`
+- `examples/example-schtasks.txt`
 
 ---
 
-## Security notes
+## Security considerations
 
-- Do not commit secrets (client secrets, tokens).
-- Avoid logging full tokens.
-- Prefer least-privilege credentials for the LXCA API account where possible.
+- Do **not** commit secrets (client secrets, tokens)
+- Tokens are never written to disk by the script
+- Session cleanup is enforced even on failure
+- Principle of least privilege is recommended for LXCA API accounts
 
 ---
 
-## Optional lab validation: SMTP capture (wire inspection)
+## Optional: SMTP capture & wire validation (lab only)
 
-Folder: `smtp-capture/`
+Included **only for engineering validation**, not production use.
+
+Located in `smtp-capture/`.
 
 Purpose:
-- Confirm LXCA sends `AUTH XOAUTH2`
-- Confirm the **bearer token changes** after rotation and stays stable between rotations
+- Verify `AUTH XOAUTH2` is used
+- Confirm token changes after rotation
+- Confirm token stability between rotations
 
-### Run capture server (STARTTLS on port 5870)
+The capture server logs **hashes and lengths only**, not raw tokens.
 
-1) Create a self-signed cert (lab only):
-```bash
-sudo mkdir -p /opt/smtp-capture
-cd /opt/smtp-capture
-sudo openssl req -x509 -newkey rsa:2048 -sha256 -days 7 -nodes \
-  -keyout smtp.key -out smtp.crt \
-  -subj "/CN=lxca-smtp-capture.local"
-sudo chmod 600 smtp.key
-```
-
-2) Copy and run:
-```bash
-sudo cp smtp-capture/smtp_capture.py /opt/smtp-capture/smtp_capture.py
-sudo python3 /opt/smtp-capture/smtp_capture.py
-```
-
-3) Point the LXCA email alert forwarder to your capture host:
-- Host: your capture server IP
-- Port: 5870
-- Connection: STARTTLS
-- Authentication: OAuth2
-
-The capture server logs **hash-only** token fingerprints by default:
-- XOAUTH2_B64_META (len + sha256 snippet)
-- XOAUTH2_USER
-- TOKEN_META (len + sha256 snippet)
-- TOKEN_SNIP (optional short prefix/suffix)
+This section can be omitted entirely in production deployments.
 
 ---
 
-## Included file fingerprints
+## License
 
-- `scripts/Rotate-LXCA-O365SmtpToken.ps1` sha256: `89505d721fca591417bd162833f7a1f99a2b5279d67b9045fee8b8375e60a10f`
-- `smtp-capture/smtp_capture.py` sha256: `162deb4c6aabf7cf358b23fc4cde15bfbe2bf3a388712f3a72e06e7e07fba918`
+MIT
+
+---
+
+## Disclaimer
+
+> This project is provided in a personal capacity and is not an official or
+> supported product of Lenovo or Microsoft.
