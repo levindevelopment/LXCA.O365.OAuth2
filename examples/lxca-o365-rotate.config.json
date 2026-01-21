@@ -1,0 +1,9 @@
+{
+  "LxcaBaseUrl": "https://lxca-ip-or-hostname",
+  "LxcaUser": "admin",
+  "MonitorId": "0000000000000",
+  "TenantId": "00000000-0000-0000-0000-000000000000",
+  "ClientId": "00000000-0000-0000-0000-000000000000",
+  "SmtpUser": "alerts@yourdomain.com",
+  "DescriptionPrefix": "O365 SMTP token rotated"
+}
