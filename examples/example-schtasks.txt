@@ -1,0 +1,6 @@
+:: Example: create a scheduled task that runs every 30 minutes
+:: Adjust paths, credentials, and arguments as needed.
+
+schtasks /Create /TN "LXCA OAuth2 Token Rotate" ^
+  /TR "\"C:\Program Files\PowerShell\7\pwsh.exe\" -NoProfile -ExecutionPolicy Bypass -File \"C:\Scripts\Rotate-LXCA-O365SmtpToken.ps1\" -LxcaBaseUrl \"https://lxca.local\" -LxcaUser \"admin\" -LxcaPass \"********\" -MonitorId \"1768960044290\" -RotateToken -TokenValue \"DUMMYTOKEN_...\" -DescriptionPrefix \"TOKEN-ROTATED\"" ^
+  /SC MINUTE /MO 30 /F

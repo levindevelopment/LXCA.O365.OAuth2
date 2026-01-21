@@ -1,0 +1,14 @@
+# secrets
+*.secret
+*.token
+*.env
+*.pem
+*.pfx
+*.p12
+
+# logs
+*.log
+
+# python
+__pycache__/
+*.pyc
