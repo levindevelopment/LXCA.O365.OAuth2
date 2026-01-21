@@ -1,6 +1,6 @@
 # LXCA → Microsoft 365 SMTP OAuth2 Token Rotation
 
-This repository provides a **PowerShell 7 script** to rotate OAuth2 bearer tokens used by **Lenovo XClarity Administrator (LXCA)** email alert forwarders configured with **SMTP OAuth2 (XOAUTH2)**.
+This repository provides a **production-ready PowerShell 7 script** to rotate OAuth2 bearer tokens used by **Lenovo XClarity Administrator (LXCA)** email alert forwarders configured with **SMTP OAuth2 (XOAUTH2)**.
 
 The primary intent of this project is to enable **safe, automated token rotation** without manual GUI interaction, ensuring uninterrupted alert delivery via Microsoft 365.
 
@@ -78,7 +78,7 @@ Typical placements:
 
 ```powershell
 pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
-  -LxcaBaseUrl "https://192.168.183.130" `
+  -LxcaBaseUrl "https://lxca-ip-or-hostname" `
   -LxcaUser "admin" -LxcaPass "********" `
   -ListMonitors
 ```
@@ -89,7 +89,7 @@ pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
 
 ```powershell
 pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
-  -LxcaBaseUrl "https://192.168.183.130" `
+  -LxcaBaseUrl "https://lxca-ip-or-hostname" `
   -LxcaUser "admin" -LxcaPass "********" `
   -MonitorId "1768960044290" `
   -RotateToken `
@@ -101,16 +101,47 @@ pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
 
 ### Rotate using Entra OAuth2 (production)
 
+> **Production tip:** Avoid passing `-LxcaPass` or `-ClientSecret` in clear text on the command line long-term.
+> Use SecretManagement, Windows Credential Manager, or an encrypted secrets file protected by the scheduled task account.
+> A Task Scheduler wrapper is provided below.
+
 ```powershell
+# Production example: mint a fresh Entra OAuth2 access token and apply it to a specific LXCA Email Alert monitor
+#
+# Prereqs (document these in your environment runbook):
+# - The machine running this command can reach:
+#     * LXCA: https://<lxca-host-or-ip>
+#     * Entra token endpoint: https://login.microsoftonline.com
+#     * (Optional validation) smtp.office365.com:587
+# - Entra App Registration is created and client secret is available (do NOT hardcode secrets in source control)
+# - The SMTP mailbox (SmtpUser) is licensed/valid and SMTP AUTH is enabled per your org policy
+# - The LXCA Email Alert forwarder (monitor) already exists and is configured to OAuth2 in LXCA GUI
+
+# REPLACE THESE VALUES:
+$LxcaBaseUrl   = "https://192.168.183.130"     # <-- LXCA base URL (HTTPS)
+$LxcaUser      = "admin"                       # <-- LXCA API user
+$LxcaPass      = "********"                    # <-- LXCA password (store securely)
+$MonitorId     = "1768960044290"               # <-- LXCA monitor ID (from -ListMonitors)
+
+$TenantId      = "00000000-0000-0000-0000-000000000000" # <-- Entra tenant GUID
+$ClientId      = "00000000-0000-0000-0000-000000000000" # <-- App (client) ID GUID
+$ClientSecret  = "********"                               # <-- Client secret VALUE (store securely)
+
+$SmtpUser      = "alerts@yourdomain.com"        # <-- Mailbox UPN used by LXCA for SMTP AUTH XOAUTH2
+
+# Suggested marker (shows in LXCA forwarder description for audit/traceability):
+$DescriptionPrefix = "O365 SMTP token rotated"
+
 pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
-  -LxcaBaseUrl "https://192.168.183.130" `
-  -LxcaUser "admin" -LxcaPass "********" `
-  -MonitorId "1768960044290" `
+  -LxcaBaseUrl $LxcaBaseUrl `
+  -LxcaUser $LxcaUser -LxcaPass $LxcaPass `
+  -MonitorId $MonitorId `
   -RotateToken `
-  -TenantId "<tenant-guid>" `
-  -ClientId "<app-guid>" `
-  -ClientSecret "<secret>" `
-  -SmtpUser "alerts@yourdomain.com"
+  -TenantId $TenantId `
+  -ClientId $ClientId `
+  -ClientSecret $ClientSecret `
+  -SmtpUser $SmtpUser `
+  -DescriptionPrefix $DescriptionPrefix
 ```
 
 ---
@@ -126,7 +157,7 @@ Microsoft 365 OAuth2 access tokens typically have a **60-minute lifetime**.
 
 ### Rotation flow
 
-1. Script requests a fresh OAuth2 access token from Entra
+1. Script requests a fresh access token from Entra
 2. Script updates the LXCA Email Alert monitor with the new token
 3. LXCA immediately begins using the new token for `AUTH XOAUTH2`
 4. Previous token expires naturally in Entra
@@ -138,28 +169,66 @@ This ensures:
 
 ---
 
-## Windows Task Scheduler integration
+## Windows Task Scheduler integration (wrapper included)
 
-The script is explicitly designed for **non-interactive scheduled execution**.
+For production, use the wrapper in `examples/` to keep secrets off the command line.
 
-### Recommended task settings
+### Included files
 
-- Program: `pwsh.exe`
+- `examples/Set-LXCAO365Secrets.ps1`  
+  Creates an **encrypted secrets file** using DPAPI (tied to the creating Windows user account).
+
+- `examples/Run-LXCAO365RotateScheduled.ps1`  
+  Loads secrets + config and invokes `scripts/Rotate-LXCA-O365SmtpToken.ps1` safely.
+
+- `examples/lxca-o365-rotate.config.json`  
+  Non-secret configuration (LXCA URL, MonitorId, TenantId, etc.).
+
+### Step 1 — create secrets (run once as the scheduled task account)
+
+```powershell
+pwsh .\examples\Set-LXCAO365Secrets.ps1 `
+  -OutFile .\examples\lxca-o365-rotate.secrets.xml
+```
+
+You’ll be prompted for:
+- LXCA password
+- Entra client secret
+
+### Step 2 — create config (non-secret)
+
+Edit:
+- `examples/lxca-o365-rotate.config.json`
+
+### Step 3 — test wrapper interactively
+
+```powershell
+pwsh .\examples\Run-LXCAO365RotateScheduled.ps1 `
+  -ConfigPath .\examples\lxca-o365-rotate.config.json `
+  -SecretsPath .\examples\lxca-o365-rotate.secrets.xml
+```
+
+### Step 4 — Task Scheduler action
+
+Program/script:
+- `C:\Program Files\PowerShell\7\pwsh.exe`
+
+Arguments (example):
+```text
+-NoProfile -ExecutionPolicy Bypass -File "C:\Path\Run-LXCAO365RotateScheduled.ps1" -ConfigPath "C:\Path\lxca-o365-rotate.config.json" -SecretsPath "C:\Path\lxca-o365-rotate.secrets.xml"
+```
+
+Recommended task settings:
 - Run whether user is logged on or not
-- Run with highest privileges (if required)
-- Do **not** allow overlapping runs
-- Disable “Stop task if it runs longer than…”
-
-Examples provided in:
-- `examples/example-task.ps1`
-- `examples/example-schtasks.txt`
+- Do not allow overlapping runs
+- Disable “Stop the task if it runs longer than…”
 
 ---
 
 ## Security considerations
 
 - Do **not** commit secrets (client secrets, tokens)
-- Tokens are never written to disk by the script
+- Tokens are never written to disk by the rotator script
 - Session cleanup is enforced even on failure
 - Principle of least privilege is recommended for LXCA API accounts
 
