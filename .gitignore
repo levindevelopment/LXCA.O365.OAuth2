@@ -12,3 +12,7 @@
 # python
 __pycache__/
 *.pyc
+delegated_refresh_token.txt
+*.jwt
+examples/**/delegated_refresh_token*.txt
+examples/**/o365_token*.jwt
