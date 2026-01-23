@@ -1,72 +1,113 @@
 <#
 .SYNOPSIS
-  Task Scheduler-friendly wrapper to rotate the LXCA SMTP OAuth2 token.
+  Task Scheduler wrapper to run Rotate-LXCA-O365SmtpToken.ps1 with secrets kept off the command line.
 
 .DESCRIPTION
-  Reads non-secret configuration from JSON and secrets (SecureString) from an encrypted XML file.
-  Invokes scripts/Rotate-LXCA-O365SmtpToken.ps1 without placing secrets directly in a scheduled task argument string.
+  Reads:
+    - Config JSON (non-secret)
+    - Secrets XML (DPAPI-encrypted strings, CurrentUser)
+  Then invokes the production script with the right auth mode.
 
-.PARAMETER ConfigPath
-  Path to JSON config (non-secrets).
+  For DelegatedRefresh:
+    - Decrypts the delegated refresh token
+    - Writes it to a temp file with restricted ACL
+    - Passes -RefreshTokenPath to the production script
+    - Deletes the temp file afterwards
 
-.PARAMETER SecretsPath
-  Path to encrypted secrets XML created by Set-LXCAO365Secrets.ps1.
-
-.PARAMETER ScriptPath
-  Path to Rotate-LXCA-O365SmtpToken.ps1 (defaults relative to this wrapper).
-
-.EXAMPLE
-  pwsh .\Run-LXCAO365RotateScheduled.ps1 -ConfigPath .\lxca-o365-rotate.config.json -SecretsPath .\lxca-o365-rotate.secrets.xml
+.NOTES
+  This wrapper is Windows-focused (DPAPI). For Linux, use a vault or strict file ACLs.
 #>
 
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory)] [string] $ConfigPath,
-  [Parameter(Mandatory)] [string] $SecretsPath,
-  [string] $ScriptPath = (Join-Path $PSScriptRoot "..\scripts\Rotate-LXCA-O365SmtpToken.ps1")
+  [Parameter(Mandatory)][string] $ConfigPath,
+  [Parameter(Mandatory)][string] $SecretsPath
 )
 
-function Assert-PS7 {
-  if ($PSVersionTable.PSVersion.Major -lt 7) {
-    throw "PowerShell 7+ is required. Current: $($PSVersionTable.PSVersion)"
-  }
+function DpapiStringToSecureString {
+  param([Parameter(Mandatory)][string] $Dpapi)
+  return ConvertTo-SecureString -String $Dpapi
 }
 
-function ConvertFrom-SecureStringToPlain {
-  param([Parameter(Mandatory)][SecureString]$Secure)
+function SecureStringToPlainText {
+  param([Parameter(Mandatory)][Security.SecureString] $Secure)
   $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secure)
-  try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+  try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
   finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 }
 
-Assert-PS7
+if (-not (Test-Path -LiteralPath $ConfigPath)) { throw "ConfigPath not found: $ConfigPath" }
+if (-not (Test-Path -LiteralPath $SecretsPath)) { throw "SecretsPath not found: $SecretsPath" }
 
-if (-not (Test-Path $ConfigPath))  { throw "Config not found: $ConfigPath" }
-if (-not (Test-Path $SecretsPath)) { throw "Secrets not found: $SecretsPath" }
-if (-not (Test-Path $ScriptPath))  { throw "Rotator script not found: $ScriptPath" }
+$config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+$secrets = Import-Clixml -LiteralPath $SecretsPath
 
-$config  = Get-Content -Raw -Path $ConfigPath | ConvertFrom-Json
-$secrets = Import-Clixml -Path $SecretsPath
+$authMode = if ($config.AuthMode) { [string]$config.AuthMode } else { "AppOnly" }
 
-$lxcaPassPlain     = ConvertFrom-SecureStringToPlain -Secure $secrets.LxcaPass
-$clientSecretPlain = ConvertFrom-SecureStringToPlain -Secure $secrets.ClientSecret
-
-foreach ($k in @("LxcaBaseUrl","LxcaUser","MonitorId","TenantId","ClientId","SmtpUser")) {
-  if (-not $config.$k) { throw "Missing required config key: $k" }
+$scriptPath = if ($config.ScriptPath) { [string]$config.ScriptPath } else { "..\scripts\Rotate-LXCA-O365SmtpToken.ps1" }
+if (-not (Test-Path -LiteralPath $scriptPath)) {
+  # Try relative to the wrapper location
+  $scriptPath2 = Join-Path -Path (Split-Path -Parent $MyInvocation.MyCommand.Path) -ChildPath $scriptPath
+  if (Test-Path -LiteralPath $scriptPath2) { $scriptPath = $scriptPath2 }
+  else { throw "Rotate script not found at ScriptPath '$scriptPath' (or relative '$scriptPath2')." }
 }
 
-$descPrefix = if ($config.DescriptionPrefix) { $config.DescriptionPrefix } else { "O365 SMTP token rotated" }
+$lxcaPass = SecureStringToPlainText (DpapiStringToSecureString $secrets.LxcaPassDpapi)
 
-& pwsh -NoProfile -ExecutionPolicy Bypass -File $ScriptPath `
-  -LxcaBaseUrl $config.LxcaBaseUrl `
-  -LxcaUser $config.LxcaUser -LxcaPass $lxcaPassPlain `
-  -MonitorId $config.MonitorId `
-  -RotateToken `
-  -TenantId $config.TenantId `
-  -ClientId $config.ClientId `
-  -ClientSecret $clientSecretPlain `
-  -SmtpUser $config.SmtpUser `
-  -DescriptionPrefix $descPrefix
+$commonArgs = @(
+  "-NoProfile",
+  "-ExecutionPolicy","Bypass",
+  "-File", $scriptPath,
+  "-RotateToken",
+  "-AuthMode", $authMode,
+  "-LxcaBaseUrl", [string]$config.LxcaBaseUrl,
+  "-LxcaUser", [string]$config.LxcaUser,
+  "-LxcaPass", $lxcaPass,
+  "-MonitorId", [string]$config.MonitorId,
+  "-TenantId", [string]$config.TenantId,
+  "-ClientId", [string]$config.ClientId,
+  "-SmtpUser", [string]$config.SmtpUser
+)
 
-$exit = $LASTEXITCODE
-if ($exit -ne 0) { throw "Rotator script failed with exit code $exit" }
+if ($config.DescriptionPrefix) {
+  $commonArgs += @("-DescriptionPrefix", [string]$config.DescriptionPrefix)
+}
+
+$tmpRtPath = $null
+try {
+  if ($authMode -ieq "AppOnly") {
+    if (-not $secrets.ClientSecretDpapi) { throw "Secrets file missing ClientSecretDpapi. Re-run Set-LXCAO365Secrets.ps1 -IncludeClientSecret" }
+    $clientSecret = SecureStringToPlainText (DpapiStringToSecureString $secrets.ClientSecretDpapi)
+    $commonArgs += @("-ClientSecret", $clientSecret)
+  }
+  elseif ($authMode -ieq "DelegatedRefresh") {
+    if (-not $secrets.DelegatedRefreshTokenDpapi) { throw "Secrets file missing DelegatedRefreshTokenDpapi. Re-run Set-LXCAO365Secrets.ps1 -IncludeDelegatedRefreshToken" }
+    $rt = SecureStringToPlainText (DpapiStringToSecureString $secrets.DelegatedRefreshTokenDpapi)
+
+    $tmpRtPath = Join-Path $env:TEMP ("delegated_refresh_token_" + [guid]::NewGuid().ToString("N") + ".txt")
+    Set-Content -LiteralPath $tmpRtPath -Value $rt -NoNewline -Encoding ascii
+
+    # lock down ACL (best effort)
+    try {
+      $acl = Get-Acl -LiteralPath $tmpRtPath
+      $acl.SetAccessRuleProtection($true,$false)
+      $me = [System.Security.Principal.NTAccount]("$env:USERDOMAIN\$env:USERNAME")
+      $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($me,"FullControl","Allow")
+      $acl.SetAccessRule($rule)
+      Set-Acl -LiteralPath $tmpRtPath -AclObject $acl
+    } catch { }
+
+    $commonArgs += @("-RefreshTokenPath", $tmpRtPath)
+  }
+  else {
+    throw "Unsupported AuthMode '$authMode'. Use 'AppOnly' or 'DelegatedRefresh'."
+  }
+
+  & pwsh @commonArgs
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+} finally {
+  if ($tmpRtPath -and (Test-Path -LiteralPath $tmpRtPath)) {
+    Remove-Item -LiteralPath $tmpRtPath -Force -ErrorAction SilentlyContinue
+  }
+}
