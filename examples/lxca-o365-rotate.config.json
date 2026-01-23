@@ -1,9 +1,11 @@
 {
-  "LxcaBaseUrl": "https://lxca-ip-or-hostname",
+  "AuthMode": "AppOnly",
+  "LxcaBaseUrl": "https://<lxca-host-or-ip>",
   "LxcaUser": "admin",
-  "MonitorId": "0000000000000",
-  "TenantId": "00000000-0000-0000-0000-000000000000",
-  "ClientId": "00000000-0000-0000-0000-000000000000",
+  "MonitorId": "<monitor-id>",
+  "TenantId": "<tenant-guid-or-tenant.onmicrosoft.com>",
+  "ClientId": "<app-client-id-guid>",
   "SmtpUser": "alerts@yourdomain.com",
-  "DescriptionPrefix": "O365 SMTP token rotated"
+  "DescriptionPrefix": "O365 SMTP token rotated",
+  "ScriptPath": "..\\scripts\\Rotate-LXCA-O365SmtpToken.ps1"
 }
