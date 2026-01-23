@@ -1,3 +1,4 @@
+# NOTE: This is a SANITIZED template version. Replace placeholders (<...>) with your values.
 <#
 .SYNOPSIS
 Lists Lenovo XClarity Administrator (LXCA) event monitors (forwarders) and rotates Microsoft 365 OAuth2 SMTP tokens for an email forwarder.
@@ -30,15 +31,15 @@ SECURITY
 
 EXAMPLES
   # List all monitors
-  .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://192.168.183.130" -LxcaUser admin -LxcaPass "*****" -ListMonitors
+  .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaUser admin -LxcaPass "*****" -ListMonitors
 
   # List email forwarders only, filtered by name
-  .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://192.168.183.130" -LxcaUser admin -LxcaPass "*****" -ListMonitors -EmailOnly -NameLike "API Test"
+  .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaUser admin -LxcaPass "*****" -ListMonitors -EmailOnly -NameLike "API Test"
 
   # Rotate token for a specific monitor id (updates token fields + description only)
   .\Rotate-LXCA-O365SmtpToken.ps1 `
-    -LxcaBaseUrl "https://192.168.183.130" -LxcaUser admin -LxcaPass "*****" `
-    -RotateToken -MonitorId "1768960044290" `
+    -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaUser admin -LxcaPass "*****" `
+    -RotateToken -MonitorId "<monitor-id>" `
     -TenantId "<tenant-guid>" -ClientId "<app-guid>" -ClientSecret "<secret>" `
     -SmtpUser "alerts@yourdomain.com"
 
