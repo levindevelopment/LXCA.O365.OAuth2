@@ -91,7 +91,7 @@ pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
 pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
   -LxcaBaseUrl "https://lxca-ip-or-hostname" `
   -LxcaUser "admin" -LxcaPass "********" `
-  -MonitorId "1768960044290" `
+  -MonitorId "<monitor-id>" `
   -RotateToken `
   -TokenValue ("DUMMYTOKEN_" + ([guid]::NewGuid().ToString("N"))) `
   -DescriptionPrefix "TOKEN-ROTATE TEST"
@@ -118,10 +118,10 @@ pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
 # - The LXCA Email Alert forwarder (monitor) already exists and is configured to OAuth2 in LXCA GUI
 
 # REPLACE THESE VALUES:
-$LxcaBaseUrl   = "https://192.168.183.130"     # <-- LXCA base URL (HTTPS)
+$LxcaBaseUrl   = "https://<lxca-host-or-ip>"     # <-- LXCA base URL (HTTPS)
 $LxcaUser      = "admin"                       # <-- LXCA API user
 $LxcaPass      = "********"                    # <-- LXCA password (store securely)
-$MonitorId     = "1768960044290"               # <-- LXCA monitor ID (from -ListMonitors)
+$MonitorId     = "<monitor-id>"               # <-- LXCA monitor ID (from -ListMonitors)
 
 $TenantId      = "00000000-0000-0000-0000-000000000000" # <-- Entra tenant GUID
 $ClientId      = "00000000-0000-0000-0000-000000000000" # <-- App (client) ID GUID
@@ -131,8 +131,11 @@ $SmtpUser      = "alerts@yourdomain.com"        # <-- Mailbox UPN used by LXCA f
 
 # Suggested marker (shows in LXCA forwarder description for audit/traceability):
 $DescriptionPrefix = "O365 SMTP token rotated"
-
+```
+Production (AppOnly)
+```powershell
 pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
+  -AuthMode AppOnly `
   -LxcaBaseUrl $LxcaBaseUrl `
   -LxcaUser $LxcaUser -LxcaPass $LxcaPass `
   -MonitorId $MonitorId `
@@ -143,6 +146,80 @@ pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
   -SmtpUser $SmtpUser `
   -DescriptionPrefix $DescriptionPrefix
 ```
+(DelegatedRefresh)
+```powershell
+pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
+  -AuthMode DelegatedRefresh `
+  -LxcaBaseUrl $LxcaBaseUrl `
+  -LxcaUser $LxcaUser -LxcaPass $LxcaPass `
+  -MonitorId $MonitorId `
+  -RotateToken `
+  -TenantId $TenantId `
+  -ClientId $ClientId `
+  -RefreshTokenPath $RefreshTokenPath `
+  -SmtpUser $SmtpUser `
+  -DescriptionPrefix $DescriptionPrefix
+```
+
+---
+
+## Delegated OAuth2 bootstrap (DelegatedRefresh mode)
+
+Delegated mode uses an **interactive device-code sign-in once** to obtain a **refresh token** for the mailbox account (e.g. `alerts@yourdomain.com`). The rotator then uses that refresh token to mint new access tokens automatically.
+
+> The delegated refresh token is long-lived and does not have a fixed expiry, but it may be invalidated by normal security operations (password reset, account changes, policy updates).
+> If invalidated, re-run the bootstrap process to generate a new refresh token.
+
+### Files
+- `scripts/Bootstrap-DelegatedSmtp.ps1` (one-time / break-glass)
+- `scripts/Get-DelegatedSmtpAccessToken.ps1` (optional helper)
+
+### Step 1 — enable Public client flows on the Entra app
+In the App Registration: **Authentication** → enable **Allow public client flows**.
+
+### Step 2 — run bootstrap as the mailbox user
+Sign in as the mailbox identity you will send as (e.g. `smtpuser@tenant.onmicrosoft.com`).
+
+> Run bootstrap as the mailbox user (smtpuser@...), not an admin, because the refresh token is user-bound.
+
+```powershell
+pwsh .\scripts\Bootstrap-DelegatedSmtp.ps1 `
+  -TenantId "tenant.onmicrosoft.com" `
+  -ClientId "<app-client-id-guid>" `
+  -Upn "alerts@yourdomain.com"
+```
+
+This writes `delegated_refresh_token.txt` in the current directory.
+
+### Step 3 — store the refresh token securely (recommended)
+For Windows Task Scheduler deployments, store the refresh token in the DPAPI secrets file:
+
+> Recommended workflow:
+> 1. Decide the “run-as” identity for the scheduled task (service account).
+> 2. Run Set-LXCAO365Secrets.ps1 as that same identity to generate the DPAPI secrets XML.
+> 3. Configure Task Scheduler to run the wrapper under the same identity.
+
+```powershell
+pwsh .\examples\Set-LXCAO365Secrets.ps1 `
+  -OutFile .\examples\lxca-o365-rotate.secrets.xml `
+  -IncludeDelegatedRefreshToken `
+  -DelegatedRefreshTokenPath .\delegated_refresh_token.txt
+```
+
+> Keep the refresh token secret.
+
+> After importing the refresh token into the encrypted secrets store,
+> you may delete the plaintext delegated_refresh_token.txt. 
+> Do not delete the stored/encrypted copy unless you are switching to AppOnly.
+
+### Step 4 — run the wrapper in DelegatedRefresh mode
+Set `AuthMode` to `DelegatedRefresh` in the config JSON and run the wrapper.
+
+### Phase 2 — switch to AppOnly when available (best-practice target)
+Once your tenant supports Exchange Online Application RBAC for `SMTP.SendAsApp` (and `Enable-OrganizationCustomization` succeeds),
+you can switch to `AuthMode: AppOnly` and remove the delegated refresh token from your secrets store.
+
+Set `AuthMode` to `DelegatedRefresh` in the config JSON and run the wrapper.
 
 ---
 
@@ -181,7 +258,7 @@ For production, use the wrapper in `examples/` to keep secrets off the command l
 - `examples/Run-LXCAO365RotateScheduled.ps1`  
   Loads secrets + config and invokes `scripts/Rotate-LXCA-O365SmtpToken.ps1` safely.
 
-- `examples/lxca-o365-rotate.config.json`  
+- `examples/lxca-o365-rotate.config.json (template)`  
   Non-secret configuration (LXCA URL, MonitorId, TenantId, etc.).
 
 ### Step 1 — create secrets (run once as the scheduled task account)
@@ -198,7 +275,7 @@ You’ll be prompted for:
 ### Step 2 — create config (non-secret)
 
 Edit:
-- `examples/lxca-o365-rotate.config.json`
+- `examples/lxca-o365-rotate.config.json (template)`
 
 ### Step 3 — test wrapper interactively
 
@@ -303,6 +380,25 @@ Purpose:
 The capture server logs **hashes and lengths only**, not raw tokens.
 
 This section can be omitted entirely in production deployments.
+
+---
+
+## Troubleshooting
+
+### DelegatedRefresh: `invalid_grant` when refreshing
+This usually means the delegated refresh token was revoked/invalidated (password reset, account disabled, sign-out/revoke sessions, policy change, etc.).
+
+Fix:
+1. Re-run `scripts/Bootstrap-DelegatedSmtp.ps1` as the mailbox user.
+2. Re-store the new refresh token using `examples/Set-LXCAO365Secrets.ps1` (DPAPI secrets file).
+3. Re-run the scheduled wrapper.
+
+### Wrapper cannot decrypt secrets (DPAPI)
+The scheduled task must run under the **same Windows identity** that created the DPAPI secrets file.
+
+Fix:
+- Re-run `examples/Set-LXCAO365Secrets.ps1` as the scheduled task account and regenerate the secrets XML.
+
 
 ---
 
