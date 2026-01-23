@@ -66,6 +66,8 @@ param(
   [string] $TenantId,
   [string] $ClientId,
   [string] $ClientSecret,
+  [ValidateSet("AppOnly","DelegatedRefresh")] [string] $AuthMode = "AppOnly",
+  [string] $RefreshTokenPath,
   [string] $SmtpUser,
 
   # --- Stamp ---
@@ -109,6 +111,37 @@ function Get-O365AccessToken_AppOnly {
     expires_at   = (Get-Date).ToUniversalTime().AddSeconds([int]$resp.expires_in)
   }
 }
+
+function Get-O365AccessToken_DelegatedRefresh {
+  param(
+    [Parameter(Mandatory)] [string] $TenantId,
+    [Parameter(Mandatory)] [string] $ClientId,
+    [Parameter(Mandatory)] [string] $RefreshTokenPath
+  )
+
+  if (-not (Test-Path -LiteralPath $RefreshTokenPath)) {
+    throw "Refresh token file not found: $RefreshTokenPath"
+  }
+
+  $refresh = Get-Content -LiteralPath $RefreshTokenPath -Raw
+
+  $body = @{
+    client_id     = $ClientId
+    grant_type    = "refresh_token"
+    refresh_token = $refresh
+    scope         = "offline_access https://outlook.office.com/SMTP.Send"
+  }
+
+  $resp = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token" `
+    -ContentType "application/x-www-form-urlencoded" -Body $body
+
+  [pscustomobject]@{
+    access_token = $resp.access_token
+    expires_in   = [int]$resp.expires_in
+    expires_at   = (Get-Date).ToUniversalTime().AddSeconds([int]$resp.expires_in)
+  }
+}
+
 
 function Connect-Lxca {
   <#
@@ -202,17 +235,28 @@ function Rotate-LxcaToken {
 
   # Validate required params for token rotation
   foreach ($pair in @(
-    @{Name="MonitorId";    Val=$MonitorId},
-    @{Name="TenantId";     Val=$TenantId},
-    @{Name="ClientId";     Val=$ClientId},
-    @{Name="ClientSecret"; Val=$ClientSecret},
-    @{Name="SmtpUser";     Val=$SmtpUser}
+    @{Name="MonitorId"; Val=$MonitorId},
+    @{Name="TenantId";  Val=$TenantId},
+    @{Name="ClientId";  Val=$ClientId},
+    @{Name="SmtpUser";  Val=$SmtpUser}
   )) {
     if ([string]::IsNullOrWhiteSpace([string]$pair.Val)) { throw "Missing -$($pair.Name) (required for -RotateToken)." }
   }
 
-  $tok = Get-O365AccessToken_AppOnly -TenantId $TenantId -ClientId $ClientId -ClientSecret $ClientSecret
-  Write-Host ("Minted O365 token; expires UTC: {0}" -f $tok.expires_at) -ForegroundColor Cyan
+  if ($AuthMode -eq "AppOnly") {
+    if ([string]::IsNullOrWhiteSpace($ClientSecret)) { throw "Missing -ClientSecret (required for -RotateToken -AuthMode AppOnly)." }
+  } elseif ($AuthMode -eq "DelegatedRefresh") {
+    if ([string]::IsNullOrWhiteSpace($RefreshTokenPath)) { throw "Missing -RefreshTokenPath (required for -RotateToken -AuthMode DelegatedRefresh)." }
+  } else {
+    throw "Unsupported AuthMode: $AuthMode"
+  }
+
+$tok = if ($AuthMode -eq "DelegatedRefresh") {
+    Get-O365AccessToken_DelegatedRefresh -TenantId $TenantId -ClientId $ClientId -RefreshTokenPath $RefreshTokenPath
+  } else {
+    Get-O365AccessToken_AppOnly -TenantId $TenantId -ClientId $ClientId -ClientSecret $ClientSecret
+  }
+  Write-Host ("Minted O365 token ({0}); expires UTC: {1}" -f $AuthMode, $tok.expires_at) -ForegroundColor Cyan
 
   $m = Invoke-LxcaJson -Conn $Conn -Method GET -Path "/events/monitors/$MonitorId"
 
