@@ -33,6 +33,10 @@ EXAMPLES
   # Get all monitors (preferred)
   .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaCredential (Get-Credential) -ListMonitors
 
+  # If launching pwsh from Windows PowerShell (powershell.exe), call Get-Credential inside pwsh
+  # so the PSCredential object is created in the same process:
+  # pwsh -NoProfile -Command '& ./scripts/Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaCredential (Get-Credential) -ListMonitors'
+
   # Backward-compatibility mode (discouraged)
   .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaUser admin -LxcaPass "*****" -ListMonitors
 
@@ -53,7 +57,7 @@ param(
   # NOTE: These are NOT marked Mandatory so the file can be dot-sourced to import functions.
   # When running as a script (not dot-sourced), parameter validation is enforced in Main.
   [string] $LxcaBaseUrl,
-  [PSCredential] $LxcaCredential,
+  [object] $LxcaCredential,
 
   # Backward compatibility (discouraged)
   [string] $LxcaUser,
@@ -250,8 +254,8 @@ function Disconnect-Lxca {
   }
 }
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 function Update-LxcaToken {
+  [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
   param(
     [Parameter(Mandatory)] [pscustomobject] $Conn,
     [Parameter(Mandatory)] [string] $MonitorId,
@@ -332,15 +336,38 @@ function ConvertTo-SecureStringFromPlainText {
 
 function Get-LxcaCredential {
   param(
-    [PSCredential] $LxcaCredential,
+    [object] $LxcaCredential,
     [string] $LxcaUser,
     [string] $LxcaPass
   )
 
-  if ($null -ne $LxcaCredential) { return $LxcaCredential }
+  if ($null -ne $LxcaCredential) {
+    if ($LxcaCredential -is [PSCredential]) { return $LxcaCredential }
+
+    if ($LxcaCredential -is [string] -and -not [string]::IsNullOrWhiteSpace($LxcaCredential)) {
+      # Common when launching pwsh from Windows PowerShell with:
+      #   pwsh ./script.ps1 -LxcaCredential (Get-Credential)
+      # The object is marshaled as text across process boundaries.
+      $u = [string]$LxcaCredential
+      if ($u -eq "System.Management.Automation.PSCredential") { $u = $null }
+
+      Write-Information "-LxcaCredential was received as text (likely cross-process argument marshalling). Prompting for LXCA credentials in this pwsh session..." -InformationAction Continue
+      if ([string]::IsNullOrWhiteSpace($u)) {
+        return Get-Credential -Message "Enter LXCA credentials"
+      }
+      return Get-Credential -UserName $u -Message "Enter LXCA credentials"
+    }
+
+    throw "Unsupported -LxcaCredential value type: $($LxcaCredential.GetType().FullName). Pass a PSCredential object, or omit -LxcaCredential and let this script prompt."
+  }
+
+  if ([string]::IsNullOrWhiteSpace($LxcaUser) -and [string]::IsNullOrWhiteSpace($LxcaPass)) {
+    Write-Information "No LXCA credential supplied. Prompting for LXCA credentials..." -InformationAction Continue
+    return Get-Credential -Message "Enter LXCA credentials"
+  }
 
   if ([string]::IsNullOrWhiteSpace($LxcaUser) -or [string]::IsNullOrWhiteSpace($LxcaPass)) {
-    throw "Missing LXCA credentials. Provide -LxcaCredential (preferred), or legacy -LxcaUser and -LxcaPass."
+    throw "Provide both -LxcaUser and -LxcaPass, or use -LxcaCredential."
   }
 
   Write-Warning "Using legacy -LxcaUser/-LxcaPass plaintext parameters. Prefer -LxcaCredential."
@@ -360,6 +387,7 @@ function Main {
 
   $conn = $null
   $credential = Get-LxcaCredential -LxcaCredential $LxcaCredential -LxcaUser $LxcaUser -LxcaPass $LxcaPass
+  Write-Information ("Using LXCA credential for user '{0}' against {1}." -f $credential.UserName, $LxcaBaseUrl) -InformationAction Continue
   try {
     $conn = Connect-Lxca -BaseUrl $LxcaBaseUrl -Credential $credential
 
