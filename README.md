@@ -26,7 +26,7 @@ This solution supports two OAuth token acquisition modes:
 
 ### AppOnly (preferred long-term)
 
-- Uses Entra app credentials (`EntraTenantId`/`TenantId`, `EntraClientId`/`ClientId`, `ClientSecret`)
+- Uses Entra app credentials (`EntraTenantId`, `EntraClientId`, `ClientSecret`)
 - No user refresh token required
 - Better fit for unattended service automation
 
@@ -56,15 +56,15 @@ This solution supports two OAuth token acquisition modes:
 
 For **AppOnly**:
 
-- Tenant ID
-- Client ID
+- EntraTenantId
+- EntraClientId
 - Client secret
 - SMTP mailbox/user identity (`SmtpUser`) valid for your flow
 
 For **DelegatedRefresh**:
 
-- Tenant ID
-- Client ID with public client flow enabled
+- EntraTenantId
+- EntraClientId with public client flow enabled
 - Delegated refresh token
 
 ---
@@ -132,8 +132,8 @@ The wrapper script (`Run-LXCAO365RotateScheduled.ps1`) consumes a **non-secret J
 - `LxcaBaseUrl` *(required)*: LXCA base URL, e.g. `https://lxca01.example.local`
 - `LxcaUser` *(required)*: LXCA username used to build `PSCredential`
 - `MonitorId` *(required)*: target email monitor ID
-- `EntraTenantId` *(required, preferred; alias: `TenantId`)*: Microsoft Entra tenant identifier (GUID or tenant domain)
-- `EntraClientId` *(required, preferred; alias: `ClientId`)*: Microsoft Entra app registration client ID
+- `EntraTenantId` *(required)*: Microsoft Entra tenant identifier (GUID or tenant domain)
+- `EntraClientId` *(required)*: Microsoft Entra app registration client ID
 - `SmtpUser` *(required)*: mailbox identity used by LXCA SMTP OAuth2
 - `DescriptionPrefix` *(optional)*: stamp prefix in monitor description
 - `ScriptPath` *(optional)*: override path to rotate script

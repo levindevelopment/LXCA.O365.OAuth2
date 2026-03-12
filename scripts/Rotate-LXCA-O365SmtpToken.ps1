@@ -74,8 +74,8 @@ param(
   [string] $MonitorId,
 
   # --- O365 / Entra (required only when -RotateToken) ---
-  [Alias("EntraTenantId")][string] $TenantId,
-  [Alias("EntraClientId")][string] $ClientId,
+  [string] $EntraTenantId,
+  [string] $EntraClientId,
   [string] $ClientSecret,
   [ValidateSet("AppOnly","DelegatedRefresh")] [string] $AuthMode = "AppOnly",
   [string] $RefreshTokenPath,
@@ -100,19 +100,19 @@ function Assert-Environment {
 
 function Get-O365AccessToken_AppOnly {
   param(
-    [Parameter(Mandatory)] [Alias("EntraTenantId")] [string] $TenantId,
-    [Parameter(Mandatory)] [Alias("EntraClientId")] [string] $ClientId,
+    [Parameter(Mandatory)] [string] $EntraTenantId,
+    [Parameter(Mandatory)] [string] $EntraClientId,
     [Parameter(Mandatory)] [string] $ClientSecret
   )
 
   $body = @{
-    client_id     = $ClientId
+    client_id     = $EntraClientId
     client_secret = $ClientSecret
     grant_type    = "client_credentials"
     scope         = "https://outlook.office365.com/.default"
   }
 
-  $resp = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token" `
+  $resp = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$EntraTenantId/oauth2/v2.0/token" `
     -ContentType "application/x-www-form-urlencoded" -Body $body
 
   [pscustomobject]@{
@@ -124,8 +124,8 @@ function Get-O365AccessToken_AppOnly {
 
 function Get-O365AccessToken_DelegatedRefresh {
   param(
-    [Parameter(Mandatory)] [Alias("EntraTenantId")] [string] $TenantId,
-    [Parameter(Mandatory)] [Alias("EntraClientId")] [string] $ClientId,
+    [Parameter(Mandatory)] [string] $EntraTenantId,
+    [Parameter(Mandatory)] [string] $EntraClientId,
     [Parameter(Mandatory)] [string] $RefreshTokenPath
   )
 
@@ -136,13 +136,13 @@ function Get-O365AccessToken_DelegatedRefresh {
   $refresh = Get-Content -LiteralPath $RefreshTokenPath -Raw
 
   $body = @{
-    client_id     = $ClientId
+    client_id     = $EntraClientId
     grant_type    = "refresh_token"
     refresh_token = $refresh
     scope         = "offline_access https://outlook.office.com/SMTP.Send"
   }
 
-  $resp = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token" `
+  $resp = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$EntraTenantId/oauth2/v2.0/token" `
     -ContentType "application/x-www-form-urlencoded" -Body $body
 
   [pscustomobject]@{
@@ -280,8 +280,8 @@ function Update-LxcaToken {
   param(
     [Parameter(Mandatory)] [pscustomobject] $Conn,
     [Parameter(Mandatory)] [string] $MonitorId,
-    [Parameter(Mandatory)] [Alias("EntraTenantId")] [string] $TenantId,
-    [Parameter(Mandatory)] [Alias("EntraClientId")] [string] $ClientId,
+    [Parameter(Mandatory)] [string] $EntraTenantId,
+    [Parameter(Mandatory)] [string] $EntraClientId,
     [string] $ClientSecret,
     [ValidateSet("AppOnly","DelegatedRefresh")] [string] $AuthMode = "AppOnly",
     [string] $RefreshTokenPath,
@@ -292,8 +292,8 @@ function Update-LxcaToken {
   # Validate required params for token rotation
   foreach ($pair in @(
     @{Name="MonitorId"; Val=$MonitorId},
-    @{Name="TenantId (Entra tenant identifier)";  Val=$TenantId},
-    @{Name="ClientId (Entra app registration client ID)";  Val=$ClientId},
+    @{Name="EntraTenantId";  Val=$EntraTenantId},
+    @{Name="EntraClientId";  Val=$EntraClientId},
     @{Name="SmtpUser";  Val=$SmtpUser}
   )) {
     if ([string]::IsNullOrWhiteSpace([string]$pair.Val)) { throw "Missing -$($pair.Name) (required for -RotateToken)." }
@@ -308,9 +308,9 @@ function Update-LxcaToken {
   }
 
   $tok = if ($AuthMode -eq "DelegatedRefresh") {
-    Get-O365AccessToken_DelegatedRefresh -TenantId $TenantId -ClientId $ClientId -RefreshTokenPath $RefreshTokenPath
+    Get-O365AccessToken_DelegatedRefresh -EntraTenantId $EntraTenantId -EntraClientId $EntraClientId -RefreshTokenPath $RefreshTokenPath
   } else {
-    Get-O365AccessToken_AppOnly -TenantId $TenantId -ClientId $ClientId -ClientSecret $ClientSecret
+    Get-O365AccessToken_AppOnly -EntraTenantId $EntraTenantId -EntraClientId $EntraClientId -ClientSecret $ClientSecret
   }
   Write-Information ("Minted O365 token ({0}); expires UTC: {1}" -f $AuthMode, $tok.expires_at) -InformationAction Continue
 
@@ -417,7 +417,7 @@ function Main {
       return
     }
     if ($RotateToken) {
-      Update-LxcaToken -Conn $conn -MonitorId $MonitorId -TenantId $TenantId -ClientId $ClientId `
+      Update-LxcaToken -Conn $conn -MonitorId $MonitorId -EntraTenantId $EntraTenantId -EntraClientId $EntraClientId `
         -ClientSecret $ClientSecret -AuthMode $AuthMode -RefreshTokenPath $RefreshTokenPath `
         -SmtpUser $SmtpUser -DescriptionPrefix $DescriptionPrefix
       return

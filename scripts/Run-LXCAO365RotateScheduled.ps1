@@ -43,8 +43,8 @@ $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
 $secrets = Import-Clixml -LiteralPath $SecretsPath
 
 $authMode = if ($config.AuthMode) { [string]$config.AuthMode } else { "AppOnly" }
-$entraTenantId = if ($config.EntraTenantId) { [string]$config.EntraTenantId } else { [string]$config.TenantId }
-$entraClientId = if ($config.EntraClientId) { [string]$config.EntraClientId } else { [string]$config.ClientId }
+$entraTenantId = [string]$config.EntraTenantId
+$entraClientId = [string]$config.EntraClientId
 
 $scriptPath = if ($config.ScriptPath) { [string]$config.ScriptPath } else { "..\scripts\Rotate-LXCA-O365SmtpToken.ps1" }
 if (-not (Test-Path -LiteralPath $scriptPath)) {
@@ -59,8 +59,8 @@ if (-not $config.LxcaUser) { throw "Config file missing LxcaUser." }
 $lxcaSecurePass = DpapiStringToSecureString $secrets.LxcaPassDpapi
 $lxcaCredential = [PSCredential]::new([string]$config.LxcaUser, $lxcaSecurePass)
 
-if ([string]::IsNullOrWhiteSpace($entraTenantId)) { throw "Config file missing TenantId/EntraTenantId." }
-if ([string]::IsNullOrWhiteSpace($entraClientId)) { throw "Config file missing ClientId/EntraClientId." }
+if ([string]::IsNullOrWhiteSpace($entraTenantId)) { throw "Config file missing EntraTenantId." }
+if ([string]::IsNullOrWhiteSpace($entraClientId)) { throw "Config file missing EntraClientId." }
 
 $tmpRtPath = $null
 try {
@@ -70,8 +70,8 @@ try {
     RotateToken = $true
     AuthMode = $authMode
     MonitorId = [string]$config.MonitorId
-    TenantId = $entraTenantId
-    ClientId = $entraClientId
+    EntraTenantId = $entraTenantId
+    EntraClientId = $entraClientId
     SmtpUser = [string]$config.SmtpUser
   }
 

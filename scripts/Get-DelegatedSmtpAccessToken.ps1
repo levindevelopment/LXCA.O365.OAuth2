@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory)] [string] $TenantId,
-  [Parameter(Mandatory)] [string] $ClientId,
+  [Parameter(Mandatory)] [string] $EntraTenantId,
+  [Parameter(Mandatory)] [string] $EntraClientId,
   [string] $RefreshTokenPath = ".\delegated_refresh_token.txt",
   [string] $OutTokenPath = (Join-Path $env:TEMP "o365_token.jwt"),
   [switch] $ShowClaims
@@ -10,9 +10,9 @@ param(
 $refresh = Get-Content $RefreshTokenPath -Raw
 
 $tok = Invoke-RestMethod -Method Post `
-  -Uri "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token" `
+  -Uri "https://login.microsoftonline.com/$EntraTenantId/oauth2/v2.0/token" `
   -Body @{
-    client_id     = $ClientId
+    client_id     = $EntraClientId
     grant_type    = "refresh_token"
     refresh_token = $refresh
     scope         = "offline_access https://outlook.office.com/SMTP.Send"
