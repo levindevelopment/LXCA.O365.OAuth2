@@ -52,33 +52,32 @@ if (-not (Test-Path -LiteralPath $scriptPath)) {
   else { throw "Rotate script not found at ScriptPath '$scriptPath' (or relative '$scriptPath2')." }
 }
 
-$lxcaPass = SecureStringToPlainText (DpapiStringToSecureString $secrets.LxcaPassDpapi)
-
-$commonArgs = @(
-  "-NoProfile",
-  "-ExecutionPolicy","Bypass",
-  "-File", $scriptPath,
-  "-RotateToken",
-  "-AuthMode", $authMode,
-  "-LxcaBaseUrl", [string]$config.LxcaBaseUrl,
-  "-LxcaUser", [string]$config.LxcaUser,
-  "-LxcaPass", $lxcaPass,
-  "-MonitorId", [string]$config.MonitorId,
-  "-TenantId", [string]$config.TenantId,
-  "-ClientId", [string]$config.ClientId,
-  "-SmtpUser", [string]$config.SmtpUser
-)
-
-if ($config.DescriptionPrefix) {
-  $commonArgs += @("-DescriptionPrefix", [string]$config.DescriptionPrefix)
-}
+if (-not $secrets.LxcaPassDpapi) { throw "Secrets file missing LxcaPassDpapi. Re-run Set-LXCAO365Secrets.ps1." }
+if (-not $config.LxcaUser) { throw "Config file missing LxcaUser." }
+$lxcaSecurePass = DpapiStringToSecureString $secrets.LxcaPassDpapi
+$lxcaCredential = [PSCredential]::new([string]$config.LxcaUser, $lxcaSecurePass)
 
 $tmpRtPath = $null
 try {
+  $rotateArgs = @{
+    LxcaBaseUrl = [string]$config.LxcaBaseUrl
+    LxcaCredential = $lxcaCredential
+    RotateToken = $true
+    AuthMode = $authMode
+    MonitorId = [string]$config.MonitorId
+    TenantId = [string]$config.TenantId
+    ClientId = [string]$config.ClientId
+    SmtpUser = [string]$config.SmtpUser
+  }
+
+  if ($config.DescriptionPrefix) {
+    $rotateArgs.DescriptionPrefix = [string]$config.DescriptionPrefix
+  }
+
   if ($authMode -ieq "AppOnly") {
     if (-not $secrets.ClientSecretDpapi) { throw "Secrets file missing ClientSecretDpapi. Re-run Set-LXCAO365Secrets.ps1 -IncludeClientSecret" }
     $clientSecret = SecureStringToPlainText (DpapiStringToSecureString $secrets.ClientSecretDpapi)
-    $commonArgs += @("-ClientSecret", $clientSecret)
+    $rotateArgs.ClientSecret = $clientSecret
   }
   elseif ($authMode -ieq "DelegatedRefresh") {
     if (-not $secrets.DelegatedRefreshTokenDpapi) { throw "Secrets file missing DelegatedRefreshTokenDpapi. Re-run Set-LXCAO365Secrets.ps1 -IncludeDelegatedRefreshToken" }
@@ -99,16 +98,15 @@ try {
       Write-Warning ("ACL hardening failed for temporary refresh token file '{0}': {1}" -f $tmpRtPath, $_.Exception.Message)
     }
 
-    $commonArgs += @("-RefreshTokenPath", $tmpRtPath)
+    $rotateArgs.RefreshTokenPath = $tmpRtPath
   }
   else {
     throw "Unsupported AuthMode '$authMode'. Use 'AppOnly' or 'DelegatedRefresh'."
   }
 
-  & pwsh @commonArgs
-  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-} finally {
+  & $scriptPath @rotateArgs
+}
+finally {
   if ($tmpRtPath -and (Test-Path -LiteralPath $tmpRtPath)) {
     Remove-Item -LiteralPath $tmpRtPath -Force -ErrorAction SilentlyContinue
   }
