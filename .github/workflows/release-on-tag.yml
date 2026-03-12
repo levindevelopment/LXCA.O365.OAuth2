@@ -1,0 +1,88 @@
+name: Package and Publish Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_version:
+        description: Optional version override (defaults to tag name for tag runs)
+        required: false
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  package-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Resolve package version
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION='${{ inputs.package_version }}'
+          if [[ -z "${VERSION}" && '${{ github.ref_type }}' == 'tag' ]]; then
+            VERSION='${{ github.ref_name }}'
+          fi
+
+          if [[ -z "${VERSION}" ]]; then
+            VERSION="manual-$(date -u +%Y%m%d%H%M%S)"
+          fi
+
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved package version: ${VERSION}"
+
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Build release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION='${{ steps.meta.outputs.version }}'
+          DIST_DIR="dist"
+          mkdir -p "${DIST_DIR}"
+
+          ARCHIVE_BASENAME="lxca-o365-oauth2-${VERSION}"
+          REF='${{ github.sha }}'
+          if [[ '${{ github.ref_type }}' == 'tag' ]]; then
+            REF='${{ github.ref_name }}'
+          fi
+
+          git archive --format=tar.gz \
+            --output "${DIST_DIR}/${ARCHIVE_BASENAME}.tar.gz" \
+            "${REF}"
+
+          git archive --format=zip \
+            --output "${DIST_DIR}/${ARCHIVE_BASENAME}.zip" \
+            "${REF}"
+
+          sha256sum "${DIST_DIR}/${ARCHIVE_BASENAME}.tar.gz" > "${DIST_DIR}/${ARCHIVE_BASENAME}.tar.gz.sha256"
+          sha256sum "${DIST_DIR}/${ARCHIVE_BASENAME}.zip" > "${DIST_DIR}/${ARCHIVE_BASENAME}.zip.sha256"
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lxca-o365-oauth2-package
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+
+      - name: Publish package to release (tag only)
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+          fail_on_unmatched_files: true
+          generate_release_notes: true
