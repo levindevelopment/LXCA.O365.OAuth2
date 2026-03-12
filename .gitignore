@@ -16,3 +16,4 @@ delegated_refresh_token.txt
 *.jwt
 examples/**/delegated_refresh_token*.txt
 examples/**/o365_token*.jwt
+scripts/test/o365_xoauth2_test.py
