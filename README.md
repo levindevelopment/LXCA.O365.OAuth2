@@ -412,3 +412,30 @@ MIT
 
 > This project is provided in a personal capacity and is not an official or
 > supported product of Lenovo or Microsoft.
+
+---
+
+## Release workflow (tag-driven)
+
+This repository includes a GitHub Actions workflow that packages artifacts on demand and publishes a GitHub Release when a `v*` tag is pushed (for example `v1.0.0`).
+
+What it does:
+- Builds `.tar.gz` and `.zip` source archives from the commit/tag being packaged
+- Generates SHA256 checksum files for both archives
+- Uploads package artifacts to the workflow run
+- Publishes artifacts to the GitHub Release when the workflow is running for a tag (using the preinstalled GitHub CLI and the pushed tag reference)
+
+Workflow file:
+- `.github/workflows/release-on-tag.yml`
+
+Examples:
+```bash
+# Tag-triggered release publish
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Manual fallback:
+- Run **Actions → Package and Publish Release → Run workflow**
+- Optionally set `package_version` (otherwise a UTC timestamp is used)
+- Manual runs package artifacts and upload them to the workflow run artifacts
