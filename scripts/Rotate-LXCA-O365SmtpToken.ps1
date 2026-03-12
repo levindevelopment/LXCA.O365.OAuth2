@@ -30,8 +30,10 @@ SECURITY
   - For Task Scheduler, prefer: SecretManagement, Windows Credential Manager, or a DPAPI-encrypted file.
 
 EXAMPLES
-  # Get all monitors (preferred)
-  .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaCredential (Get-Credential) -ListMonitors
+  # Get all monitors (preferred). Prompt shown by Get-Credential is for LXCA credentials.
+  .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaCredential (Get-Credential -Message "Enter LXCA credentials") -ListMonitors
+
+  # IMPORTANT: do not quote the expression, e.g. use (Get-Credential), not "(Get-Credential)".
 
   # If launching pwsh from Windows PowerShell (powershell.exe), call Get-Credential inside pwsh
   # so the PSCredential object is created in the same process:
@@ -42,7 +44,7 @@ EXAMPLES
 
   # Rotate token for a specific monitor id (updates token fields + description only)
   .\Rotate-LXCA-O365SmtpToken.ps1 `
-    -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaCredential (Get-Credential) `
+    -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaCredential (Get-Credential -Message "Enter LXCA credentials") `
     -RotateToken -MonitorId "<monitor-id>" `
     -TenantId "<tenant-guid>" -ClientId "<app-guid>" -ClientSecret "<secret>" `
     -SmtpUser "alerts@yourdomain.com"
