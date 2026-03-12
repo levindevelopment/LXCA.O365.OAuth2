@@ -87,7 +87,7 @@ Typical placements:
 - Management VM
 - Secure jump host
 
----
+## Production architecture
 
 ## Production architecture
 
