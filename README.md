@@ -26,7 +26,7 @@ This solution supports two OAuth token acquisition modes:
 
 ### AppOnly (preferred long-term)
 
-- Uses Entra app credentials (`TenantId`, `ClientId`, `ClientSecret`)
+- Uses Entra app credentials (`EntraTenantId`/`TenantId`, `EntraClientId`/`ClientId`, `ClientSecret`)
 - No user refresh token required
 - Better fit for unattended service automation
 
@@ -132,8 +132,8 @@ The wrapper script (`Run-LXCAO365RotateScheduled.ps1`) consumes a **non-secret J
 - `LxcaBaseUrl` *(required)*: LXCA base URL, e.g. `https://lxca01.example.local`
 - `LxcaUser` *(required)*: LXCA username used to build `PSCredential`
 - `MonitorId` *(required)*: target email monitor ID
-- `TenantId` *(required)*: tenant GUID or domain form
-- `ClientId` *(required)*: app/client ID
+- `EntraTenantId` *(required, preferred; alias: `TenantId`)*: Microsoft Entra tenant identifier (GUID or tenant domain)
+- `EntraClientId` *(required, preferred; alias: `ClientId`)*: Microsoft Entra app registration client ID
 - `SmtpUser` *(required)*: mailbox identity used by LXCA SMTP OAuth2
 - `DescriptionPrefix` *(optional)*: stamp prefix in monitor description
 - `ScriptPath` *(optional)*: override path to rotate script
@@ -146,8 +146,8 @@ The wrapper script (`Run-LXCAO365RotateScheduled.ps1`) consumes a **non-secret J
   "LxcaBaseUrl": "https://lxca01.example.local",
   "LxcaUser": "svc_lxca_rotate",
   "MonitorId": "<monitor-id>",
-  "TenantId": "00000000-0000-0000-0000-000000000000",
-  "ClientId": "11111111-1111-1111-1111-111111111111",
+  "EntraTenantId": "00000000-0000-0000-0000-000000000000",
+  "EntraClientId": "11111111-1111-1111-1111-111111111111",
   "SmtpUser": "alerts@contoso.com",
   "DescriptionPrefix": "O365 SMTP token rotated",
   "ScriptPath": "..\\scripts\\Rotate-LXCA-O365SmtpToken.ps1"
@@ -162,8 +162,8 @@ The wrapper script (`Run-LXCAO365RotateScheduled.ps1`) consumes a **non-secret J
   "LxcaBaseUrl": "https://lxca01.example.local",
   "LxcaUser": "svc_lxca_rotate",
   "MonitorId": "<monitor-id>",
-  "TenantId": "00000000-0000-0000-0000-000000000000",
-  "ClientId": "11111111-1111-1111-1111-111111111111",
+  "EntraTenantId": "00000000-0000-0000-0000-000000000000",
+  "EntraClientId": "11111111-1111-1111-1111-111111111111",
   "SmtpUser": "alerts@contoso.com",
   "DescriptionPrefix": "O365 SMTP token rotated",
   "ScriptPath": "..\\scripts\\Rotate-LXCA-O365SmtpToken.ps1"
@@ -201,8 +201,8 @@ pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
   -RotateToken `
   -AuthMode AppOnly `
   -MonitorId "<monitor-id>" `
-  -TenantId "<tenant-guid>" `
-  -ClientId "<app-guid>" `
+  -EntraTenantId "<tenant-guid>" `
+  -EntraClientId "<app-guid>" `
   -ClientSecret "<secret-value>" `
   -SmtpUser "alerts@yourdomain.com" `
   -DescriptionPrefix "O365 SMTP token rotated"
@@ -221,8 +221,8 @@ pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
   -RotateToken `
   -AuthMode DelegatedRefresh `
   -MonitorId "<monitor-id>" `
-  -TenantId "<tenant-guid-or-name>" `
-  -ClientId "<app-guid>" `
+  -EntraTenantId "<tenant-guid-or-name>" `
+  -EntraClientId "<app-guid>" `
   -RefreshTokenPath "./delegated_refresh_token.txt" `
   -SmtpUser "alerts@yourdomain.com"
 ```

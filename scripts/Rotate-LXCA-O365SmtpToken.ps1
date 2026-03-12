@@ -46,7 +46,7 @@ EXAMPLES
   .\Rotate-LXCA-O365SmtpToken.ps1 `
     -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaCredential (Get-Credential -Message "Enter LXCA credentials") `
     -RotateToken -MonitorId "<monitor-id>" `
-    -TenantId "<tenant-guid>" -ClientId "<app-guid>" -ClientSecret "<secret>" `
+    -EntraTenantId "<tenant-guid>" -EntraClientId "<app-guid>" -ClientSecret "<secret>" `
     -SmtpUser "alerts@yourdomain.com"
 
   # Scheduled Task invocation (pwsh.exe)
@@ -74,8 +74,8 @@ param(
   [string] $MonitorId,
 
   # --- O365 / Entra (required only when -RotateToken) ---
-  [string] $TenantId,
-  [string] $ClientId,
+  [Alias("EntraTenantId")][string] $TenantId,
+  [Alias("EntraClientId")][string] $ClientId,
   [string] $ClientSecret,
   [ValidateSet("AppOnly","DelegatedRefresh")] [string] $AuthMode = "AppOnly",
   [string] $RefreshTokenPath,
@@ -100,8 +100,8 @@ function Assert-Environment {
 
 function Get-O365AccessToken_AppOnly {
   param(
-    [Parameter(Mandatory)] [string] $TenantId,
-    [Parameter(Mandatory)] [string] $ClientId,
+    [Parameter(Mandatory)] [Alias("EntraTenantId")] [string] $TenantId,
+    [Parameter(Mandatory)] [Alias("EntraClientId")] [string] $ClientId,
     [Parameter(Mandatory)] [string] $ClientSecret
   )
 
@@ -124,8 +124,8 @@ function Get-O365AccessToken_AppOnly {
 
 function Get-O365AccessToken_DelegatedRefresh {
   param(
-    [Parameter(Mandatory)] [string] $TenantId,
-    [Parameter(Mandatory)] [string] $ClientId,
+    [Parameter(Mandatory)] [Alias("EntraTenantId")] [string] $TenantId,
+    [Parameter(Mandatory)] [Alias("EntraClientId")] [string] $ClientId,
     [Parameter(Mandatory)] [string] $RefreshTokenPath
   )
 
@@ -159,6 +159,18 @@ function ConvertTo-PlainText {
   finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 }
 
+function Get-InvokeRestErrorMessage {
+  param(
+    [Parameter(Mandatory)] $ErrorRecord
+  )
+
+  if ($ErrorRecord.ErrorDetails -and -not [string]::IsNullOrWhiteSpace($ErrorRecord.ErrorDetails.Message)) {
+    return [string]$ErrorRecord.ErrorDetails.Message
+  }
+
+  return [string]$ErrorRecord.Exception.Message
+}
+
 function Connect-Lxca {
   <#
     .SYNOPSIS
@@ -175,8 +187,15 @@ function Connect-Lxca {
   $passwordPlain = ConvertTo-PlainText -Secure $Credential.Password
   try {
     $loginBody = @{ UserId = $Credential.UserName; password = $passwordPlain } | ConvertTo-Json
-    $null = Invoke-RestMethod -Method Post -Uri ($BaseUrl.TrimEnd("/") + "/sessions") `
-      -ContentType "application/json; charset=UTF-8" -Body $loginBody -SessionVariable s -SkipCertificateCheck
+    try {
+      $null = Invoke-RestMethod -Method Post -Uri ($BaseUrl.TrimEnd("/") + "/sessions") `
+        -ContentType "application/json; charset=UTF-8" -Body $loginBody -SessionVariable s -SkipCertificateCheck
+    }
+    catch {
+      $serviceTarget = ($BaseUrl.TrimEnd("/") + "/sessions")
+      $detail = Get-InvokeRestErrorMessage -ErrorRecord $_
+      throw "Failed to authenticate to Lenovo XClarity Administrator (LXCA) login API at '$serviceTarget' using user '$($Credential.UserName)'. API error: $detail"
+    }
   }
   finally {
     $passwordPlain = $null
@@ -261,8 +280,8 @@ function Update-LxcaToken {
   param(
     [Parameter(Mandatory)] [pscustomobject] $Conn,
     [Parameter(Mandatory)] [string] $MonitorId,
-    [Parameter(Mandatory)] [string] $TenantId,
-    [Parameter(Mandatory)] [string] $ClientId,
+    [Parameter(Mandatory)] [Alias("EntraTenantId")] [string] $TenantId,
+    [Parameter(Mandatory)] [Alias("EntraClientId")] [string] $ClientId,
     [string] $ClientSecret,
     [ValidateSet("AppOnly","DelegatedRefresh")] [string] $AuthMode = "AppOnly",
     [string] $RefreshTokenPath,
@@ -273,8 +292,8 @@ function Update-LxcaToken {
   # Validate required params for token rotation
   foreach ($pair in @(
     @{Name="MonitorId"; Val=$MonitorId},
-    @{Name="TenantId";  Val=$TenantId},
-    @{Name="ClientId";  Val=$ClientId},
+    @{Name="TenantId (Entra tenant identifier)";  Val=$TenantId},
+    @{Name="ClientId (Entra app registration client ID)";  Val=$ClientId},
     @{Name="SmtpUser";  Val=$SmtpUser}
   )) {
     if ([string]::IsNullOrWhiteSpace([string]$pair.Val)) { throw "Missing -$($pair.Name) (required for -RotateToken)." }
