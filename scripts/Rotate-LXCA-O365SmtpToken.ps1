@@ -228,6 +228,7 @@ function Disconnect-Lxca {
     Invoke-LxcaJson -Conn $Conn -Method DELETE -Path "/sessions" | Out-Null
   } catch {
     # Best effort.
+    Write-Warning ("Best-effort LXCA logout failed for {0}: {1}" -f $Conn.BaseUrl, $_.Exception.Message)
   }
 }
 
