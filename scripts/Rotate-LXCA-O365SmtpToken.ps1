@@ -26,19 +26,19 @@ NOTES
   - This script intentionally uses raw LXCA REST endpoints (Invoke-RestMethod) instead of the LXCAPSTool module to keep dependencies minimal and support offline/unattended scheduled execution.
 
 SECURITY
-  - Avoid storing secrets (LXCA password, Entra client secret) in plaintext in the script.
+  - Prefer -LxcaCredential (PSCredential) over -LxcaPass.
   - For Task Scheduler, prefer: SecretManagement, Windows Credential Manager, or a DPAPI-encrypted file.
 
 EXAMPLES
-  # Get all monitors
-  .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaUser admin -LxcaPass "*****" -ListMonitors
+  # Get all monitors (preferred)
+  .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaCredential (Get-Credential) -ListMonitors
 
-  # Get email forwarders only, filtered by name
-  .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaUser admin -LxcaPass "*****" -ListMonitors -EmailOnly -NameLike "API Test"
+  # Backward-compatibility mode (discouraged)
+  .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaUser admin -LxcaPass "*****" -ListMonitors
 
   # Rotate token for a specific monitor id (updates token fields + description only)
   .\Rotate-LXCA-O365SmtpToken.ps1 `
-    -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaUser admin -LxcaPass "*****" `
+    -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaCredential (Get-Credential) `
     -RotateToken -MonitorId "<monitor-id>" `
     -TenantId "<tenant-guid>" -ClientId "<app-guid>" -ClientSecret "<secret>" `
     -SmtpUser "alerts@yourdomain.com"
@@ -53,6 +53,9 @@ param(
   # NOTE: These are NOT marked Mandatory so the file can be dot-sourced to import functions.
   # When running as a script (not dot-sourced), parameter validation is enforced in Main.
   [string] $LxcaBaseUrl,
+  [PSCredential] $LxcaCredential,
+
+  # Backward compatibility (discouraged)
   [string] $LxcaUser,
   [string] $LxcaPass,
 
@@ -88,7 +91,6 @@ function Assert-Environment {
     throw "PowerShell 7.2.24+ required. Current: $v"
   }
 }
-
 
 function Get-O365AccessToken_AppOnly {
   param(
@@ -144,6 +146,12 @@ function Get-O365AccessToken_DelegatedRefresh {
   }
 }
 
+function ConvertTo-PlainText {
+  param([Parameter(Mandatory)] [Security.SecureString] $Secure)
+  $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secure)
+  try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+  finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+}
 
 function Connect-Lxca {
   <#
@@ -155,13 +163,18 @@ function Connect-Lxca {
   #>
   param(
     [Parameter(Mandatory)] [string] $BaseUrl,
-    [Parameter(Mandatory)] [string] $Username,
-    [Parameter(Mandatory)] [string] $Password
+    [Parameter(Mandatory)] [PSCredential] $Credential
   )
 
-  $loginBody = @{ UserId = $Username; password = $Password } | ConvertTo-Json
-  $null = Invoke-RestMethod -Method Post -Uri ($BaseUrl.TrimEnd("/") + "/sessions") `
-    -ContentType "application/json; charset=UTF-8" -Body $loginBody -SessionVariable s -SkipCertificateCheck
+  $passwordPlain = ConvertTo-PlainText -Secure $Credential.Password
+  try {
+    $loginBody = @{ UserId = $Credential.UserName; password = $passwordPlain } | ConvertTo-Json
+    $null = Invoke-RestMethod -Method Post -Uri ($BaseUrl.TrimEnd("/") + "/sessions") `
+      -ContentType "application/json; charset=UTF-8" -Body $loginBody -SessionVariable s -SkipCertificateCheck
+  }
+  finally {
+    $passwordPlain = $null
+  }
 
   $cookieHeader = $s.Cookies.GetCookieHeader($BaseUrl)
   if ($cookieHeader -match 'csrf=([^;]+)') { $csrf = $Matches[1] } else { throw "No csrf cookie in: $cookieHeader" }
@@ -254,7 +267,7 @@ function Update-LxcaToken {
     throw "Unsupported AuthMode: $AuthMode"
   }
 
-$tok = if ($AuthMode -eq "DelegatedRefresh") {
+  $tok = if ($AuthMode -eq "DelegatedRefresh") {
     Get-O365AccessToken_DelegatedRefresh -TenantId $TenantId -ClientId $ClientId -RefreshTokenPath $RefreshTokenPath
   } else {
     Get-O365AccessToken_AppOnly -TenantId $TenantId -ClientId $ClientId -ClientSecret $ClientSecret
@@ -286,19 +299,32 @@ $tok = if ($AuthMode -eq "DelegatedRefresh") {
   } | Format-List
 }
 
+function Get-LxcaCredential {
+  if ($null -ne $LxcaCredential) { return $LxcaCredential }
+
+  if ([string]::IsNullOrWhiteSpace($LxcaUser) -or [string]::IsNullOrWhiteSpace($LxcaPass)) {
+    throw "Missing LXCA credentials. Provide -LxcaCredential (preferred), or legacy -LxcaUser and -LxcaPass."
+  }
+
+  Write-Warning "Using legacy -LxcaUser/-LxcaPass plaintext parameters. Prefer -LxcaCredential."
+  $securePass = ConvertTo-SecureString -String $LxcaPass -AsPlainText -Force
+  return [PSCredential]::new($LxcaUser, $securePass)
+}
+
 function Main {
   Assert-Environment
 
-  if ([string]::IsNullOrWhiteSpace($LxcaBaseUrl) -or [string]::IsNullOrWhiteSpace($LxcaUser) -or [string]::IsNullOrWhiteSpace($LxcaPass)) {
-    throw "Missing LXCA parameters. Provide -LxcaBaseUrl, -LxcaUser, -LxcaPass."
+  if ([string]::IsNullOrWhiteSpace($LxcaBaseUrl)) {
+    throw "Missing LXCA base URL. Provide -LxcaBaseUrl."
   }
   if (-not $ListMonitors -and -not $RotateToken) {
     throw "No action specified. Use -ListMonitors or -RotateToken."
   }
 
   $conn = $null
+  $credential = Get-LxcaCredential
   try {
-    $conn = Connect-Lxca -BaseUrl $LxcaBaseUrl -Username $LxcaUser -Password $LxcaPass
+    $conn = Connect-Lxca -BaseUrl $LxcaBaseUrl -Credential $credential
 
     if ($ListMonitors) {
       Get-LxcaMonitor -Conn $conn
