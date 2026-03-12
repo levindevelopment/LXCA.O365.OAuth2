@@ -78,9 +78,22 @@ jobs:
           sha256sum "${DIST_DIR}/${ARCHIVE_BASENAME}.tar.gz" > "${DIST_DIR}/${ARCHIVE_BASENAME}.tar.gz.sha256"
           sha256sum "${DIST_DIR}/${ARCHIVE_BASENAME}.zip" > "${DIST_DIR}/${ARCHIVE_BASENAME}.zip.sha256"
 
+      - name: Check release API access
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT != '' && secrets.RELEASE_PAT || github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! gh api "repos/${GITHUB_REPOSITORY}/releases" --method GET --silent >/dev/null 2>&1; then
+            echo "Release API is not accessible with current token." >&2
+            echo "If your org/repo restricts GITHUB_TOKEN write access, create a secret named RELEASE_PAT with contents:write scope and rerun." >&2
+            exit 1
+          fi
+
       - name: Publish GitHub release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT != '' && secrets.RELEASE_PAT || github.token }}
         shell: bash
         run: |
           set -euo pipefail

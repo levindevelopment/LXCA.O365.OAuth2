@@ -441,3 +441,8 @@ git push origin 1.0.1
 Manual fallback:
 - Run **Actions → Package and Publish Release → Run workflow**
 - Provide the `tag` input (for example `v1.0.0`)
+
+
+Permissions note:
+- By default the workflow uses `GITHUB_TOKEN`.
+- If your org/repo enforces read-only integration tokens for releases, add a repository secret named `RELEASE_PAT` (classic PAT or fine-grained token) with permission to create/update releases (`contents: write`) and rerun the workflow.
