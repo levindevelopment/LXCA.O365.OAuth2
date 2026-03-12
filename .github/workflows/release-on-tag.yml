@@ -1,96 +1,112 @@
 name: Package and Publish Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      package_version:
-        description: Optional version override (defaults to tag name for tag runs)
-        required: false
-        type: string
   push:
     tags:
-      - 'v*'
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag name to publish (example: v1.2.3). Leave empty for package-only runs."
+        required: false
+        type: string
+      source_ref:
+        description: "Git ref to package for manual runs (branch, SHA, or tag). Defaults to current commit."
+        required: false
+        type: string
+      package_version:
+        description: "Optional version override used in archive filenames."
+        required: false
+        type: string
+
+permissions:
+  contents: write
 
 jobs:
-  package-and-release:
+  package-and-publish:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
-      - name: Resolve package version
+      - name: Resolve packaging metadata
         id: meta
         shell: bash
         run: |
           set -euo pipefail
 
+          RELEASE_TAG=""
+          SOURCE_REF='${{ inputs.source_ref }}'
           VERSION='${{ inputs.package_version }}'
-          if [[ -z "${VERSION}" && '${{ github.ref_type }}' == 'tag' ]]; then
-            VERSION='${{ github.ref_name }}'
+          SHOULD_PUBLISH="false"
+
+          if [[ '${{ github.event_name }}' == 'push' && '${{ github.ref_type }}' == 'tag' ]]; then
+            RELEASE_TAG='${{ github.ref_name }}'
+            SOURCE_REF='${{ github.ref_name }}'
+            SHOULD_PUBLISH="true"
+          else
+            if [[ -z "${SOURCE_REF}" ]]; then
+              SOURCE_REF='${{ github.sha }}'
+            fi
+
+            if [[ -n '${{ inputs.release_tag }}' ]]; then
+              RELEASE_TAG='${{ inputs.release_tag }}'
+              SHOULD_PUBLISH="true"
+            fi
           fi
 
           if [[ -z "${VERSION}" ]]; then
-            VERSION="manual-$(date -u +%Y%m%d%H%M%S)"
+            if [[ -n "${RELEASE_TAG}" ]]; then
+              VERSION="${RELEASE_TAG}"
+            else
+              VERSION="manual-$(date -u +%Y%m%d%H%M%S)"
+            fi
           fi
 
-          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
-          echo "Resolved package version: ${VERSION}"
+          BASENAME="lxca-o365-oauth2-${VERSION}"
 
-      - name: Checkout
+          echo "source_ref=${SOURCE_REF}" >> "${GITHUB_OUTPUT}"
+          echo "release_tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "should_publish=${SHOULD_PUBLISH}" >> "${GITHUB_OUTPUT}"
+          echo "basename=${BASENAME}" >> "${GITHUB_OUTPUT}"
+
+          echo "source_ref=${SOURCE_REF}"
+          echo "release_tag=${RELEASE_TAG:-<none>}"
+          echo "should_publish=${SHOULD_PUBLISH}"
+          echo "basename=${BASENAME}"
+
+      - name: Checkout source ref
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ steps.meta.outputs.source_ref }}
 
-      - name: Build release artifacts
+      - name: Build release archives
         shell: bash
         run: |
           set -euo pipefail
 
-          VERSION='${{ steps.meta.outputs.version }}'
-          DIST_DIR="dist"
-          mkdir -p "${DIST_DIR}"
+          mkdir -p dist
+          BASENAME='${{ steps.meta.outputs.basename }}'
 
-          ARCHIVE_BASENAME="lxca-o365-oauth2-${VERSION}"
-          REF='${{ github.sha }}'
-          if [[ '${{ github.ref_type }}' == 'tag' ]]; then
-            REF='${{ github.ref_name }}'
-          fi
+          git archive --format=tar.gz --output "dist/${BASENAME}.tar.gz" HEAD
+          git archive --format=zip --output "dist/${BASENAME}.zip" HEAD
 
-          git archive --format=tar.gz \
-            --output "${DIST_DIR}/${ARCHIVE_BASENAME}.tar.gz" \
-            "${REF}"
+          sha256sum "dist/${BASENAME}.tar.gz" > "dist/${BASENAME}.tar.gz.sha256"
+          sha256sum "dist/${BASENAME}.zip" > "dist/${BASENAME}.zip.sha256"
 
-          git archive --format=zip \
-            --output "${DIST_DIR}/${ARCHIVE_BASENAME}.zip" \
-            "${REF}"
-
-          sha256sum "${DIST_DIR}/${ARCHIVE_BASENAME}.tar.gz" > "${DIST_DIR}/${ARCHIVE_BASENAME}.tar.gz.sha256"
-          sha256sum "${DIST_DIR}/${ARCHIVE_BASENAME}.zip" > "${DIST_DIR}/${ARCHIVE_BASENAME}.zip.sha256"
-
-      - name: Upload package artifacts
+      - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
           name: lxca-o365-oauth2-package
-          path: |
+          path: dist/*
+
+      - name: Publish release assets
+        if: steps.meta.outputs.should_publish == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.release_tag }}
+          generate_release_notes: true
+          files: |
             dist/*.tar.gz
             dist/*.zip
             dist/*.sha256
-
-      - name: Publish package to release (tag only)
-        if: github.ref_type == 'tag'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          TAG='${{ github.ref_name }}'
-
-          if gh release view "${TAG}" >/dev/null 2>&1; then
-            gh release upload "${TAG}" dist/* --clobber
-          else
-            gh release create "${TAG}" dist/* \
-              --verify-tag \
-              --generate-notes \
-              --latest
-          fi
+          overwrite_files: true
