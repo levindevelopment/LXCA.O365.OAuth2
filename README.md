@@ -422,7 +422,7 @@ This repository includes a GitHub Actions workflow that packages and publishes a
 What it does on each tag run:
 - Creates `.tar.gz` and `.zip` source archives from the tagged commit
 - Generates SHA256 checksum files for both archives
-- Publishes (or updates) a GitHub Release for that tag with generated release notes and uploads the artifacts
+- Publishes (or updates) a GitHub Release for that tag with generated release notes and uploads the artifacts (via GitHub CLI in the workflow)
 
 Workflow file:
 - `.github/workflows/release-on-tag.yml`

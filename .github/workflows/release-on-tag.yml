@@ -14,6 +14,10 @@ on:
 permissions:
   contents: write
 
+env:
+  # Opt in early so JavaScript actions run on the current runtime path.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   package-and-release:
     runs-on: ubuntu-latest
@@ -40,7 +44,7 @@ jobs:
           echo "Resolved tag: ${TAG}"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -75,14 +79,19 @@ jobs:
           sha256sum "${DIST_DIR}/${ARCHIVE_BASENAME}.zip" > "${DIST_DIR}/${ARCHIVE_BASENAME}.zip.sha256"
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          target_commitish: ${{ steps.meta.outputs.tag }}
-          generate_release_notes: true
-          draft: false
-          prerelease: false
-          files: |
-            dist/*.tar.gz
-            dist/*.zip
-            dist/*.sha256
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG='${{ steps.meta.outputs.tag }}'
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" dist/* --clobber
+          else
+            gh release create "${TAG}" dist/* \
+              --target "${TAG}" \
+              --generate-notes \
+              --latest
+          fi
