@@ -89,6 +89,8 @@ Typical placements:
 
 ## Production architecture
 
+## Production architecture
+
 This implementation uses three first-class operational scripts:
 
 - `scripts/Rotate-LXCA-O365SmtpToken.ps1`  
@@ -160,7 +162,7 @@ The wrapper script (`Run-LXCAO365RotateScheduled.ps1`) consumes a **non-secret J
   "LxcaBaseUrl": "https://lxca01.example.local",
   "LxcaUser": "svc_lxca_rotate",
   "MonitorId": "<monitor-id>",
-  "TenantId": "contoso.onmicrosoft.com",
+  "TenantId": "00000000-0000-0000-0000-000000000000",
   "ClientId": "11111111-1111-1111-1111-111111111111",
   "SmtpUser": "alerts@contoso.com",
   "DescriptionPrefix": "O365 SMTP token rotated",
@@ -176,6 +178,9 @@ The wrapper script (`Run-LXCAO365RotateScheduled.ps1`) consumes a **non-secret J
 
 Use this workflow first to prove connectivity and functional rotation before scheduler rollout.
 
+Step 1 (discover monitor IDs) is common.
+Step 2 is **mode selection**: run **either AppOnly or DelegatedRefresh**, not both in sequence.
+
 ### 1) Discover monitor IDs
 
 ```powershell
@@ -185,7 +190,7 @@ pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
   -ListMonitors
 ```
 
-### 2) Validate AppOnly rotation
+### 2A) Validate AppOnly rotation (choose this OR 2B)
 
 ```powershell
 $cred = Get-Credential
@@ -203,7 +208,7 @@ pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
   -DescriptionPrefix "O365 SMTP token rotated"
 ```
 
-### 3) Validate DelegatedRefresh rotation
+### 2B) Validate DelegatedRefresh rotation (choose this OR 2A)
 
 Before this step, complete [Delegated bootstrap helpers](#delegated-bootstrap-helpers) to create `delegated_refresh_token.txt`.
 
