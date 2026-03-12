@@ -4,7 +4,7 @@ This repository provides PowerShell 7 automation to rotate OAuth2 bearer tokens 
 
 The intent is safe, repeatable token rotation without manual LXCA GUI changes.
 
----
+There are now **three production scripts**:
 
 ## Production architecture
 
@@ -106,7 +106,7 @@ Typical placements:
 - Management VM
 - Secure jump host
 
----
+## Manual validation workflow (non-scheduled)
 
 ## Manual validation workflow (non-scheduled)
 
