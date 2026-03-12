@@ -417,9 +417,9 @@ MIT
 
 ## Release workflow (tag-driven)
 
-This repository now includes a GitHub Actions workflow that automatically packages and publishes a GitHub Release whenever you push a version tag matching `v*` (for example `v1.0.0`).
+This repository includes a GitHub Actions workflow that packages and publishes a GitHub Release whenever you push a tag (for example `v1.0.0` or `1.0.0`). It also supports manual reruns via `workflow_dispatch` if you need to republish for an existing tag.
 
-What it does on each matching tag push:
+What it does on each tag run:
 - Creates `.tar.gz` and `.zip` source archives from the tagged commit
 - Generates SHA256 checksum files for both archives
 - Publishes (or updates) a GitHub Release for that tag with generated release notes and uploads the artifacts
@@ -427,8 +427,17 @@ What it does on each matching tag push:
 Workflow file:
 - `.github/workflows/release-on-tag.yml`
 
-Example:
+Examples:
 ```bash
+# Push a new tag (any tag name pattern is accepted)
 git tag v1.0.0
 git push origin v1.0.0
+
+# Or semver without prefix
+git tag 1.0.1
+git push origin 1.0.1
 ```
+
+Manual fallback:
+- Run **Actions → Package and Publish Release → Run workflow**
+- Provide the `tag` input (for example `v1.0.0`)
