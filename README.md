@@ -417,32 +417,25 @@ MIT
 
 ## Release workflow (tag-driven)
 
-This repository includes a GitHub Actions workflow that packages and publishes a GitHub Release whenever you push a tag (for example `v1.0.0` or `1.0.0`). It also supports manual reruns via `workflow_dispatch` if you need to republish for an existing tag.
+This repository includes a GitHub Actions workflow that packages artifacts on demand and publishes a GitHub Release when a `v*` tag is pushed (for example `v1.0.0`).
 
-What it does on each tag run:
-- Creates `.tar.gz` and `.zip` source archives from the tagged commit
+What it does:
+- Builds `.tar.gz` and `.zip` source archives from the commit/tag being packaged
 - Generates SHA256 checksum files for both archives
-- Publishes (or updates) a GitHub Release for that tag with generated release notes and uploads the artifacts (via GitHub CLI in the workflow)
+- Uploads package artifacts to the workflow run
+- Publishes artifacts to the GitHub Release when the workflow is running for a tag
 
 Workflow file:
 - `.github/workflows/release-on-tag.yml`
 
 Examples:
 ```bash
-# Push a new tag (any tag name pattern is accepted)
+# Tag-triggered release publish
 git tag v1.0.0
 git push origin v1.0.0
-
-# Or semver without prefix
-git tag 1.0.1
-git push origin 1.0.1
 ```
 
 Manual fallback:
 - Run **Actions → Package and Publish Release → Run workflow**
-- Provide the `tag` input (for example `v1.0.0`)
-
-
-Permissions note:
-- By default the workflow uses `GITHUB_TOKEN`.
-- If your org/repo enforces read-only integration tokens for releases, add a repository secret named `RELEASE_PAT` (classic PAT or fine-grained token) with permission to create/update releases (`contents: write`) and rerun the workflow.
+- Optionally set `package_version` (otherwise a UTC timestamp is used)
+- Manual runs package artifacts and upload them to the workflow run artifacts
