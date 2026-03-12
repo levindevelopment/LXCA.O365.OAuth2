@@ -2,60 +2,41 @@
 
 This repository provides PowerShell 7 automation to rotate OAuth2 bearer tokens used by Lenovo XClarity Administrator (LXCA) email alert forwarders configured with SMTP OAuth2 (XOAUTH2).
 
-The intent is safe, repeatable token rotation without manual LXCA GUI changes.
-
-There are now **three production scripts**:
-
-## Production architecture
-
-This implementation now has three first-class operational scripts:
-
-- `scripts/Rotate-LXCA-O365SmtpToken.ps1`  
-  Core engine (LXCA API login, monitor list/get/put, token update).
-- `scripts/Set-LXCAO365Secrets.ps1`  
-  Creates DPAPI-encrypted secrets XML for unattended execution.
-- `scripts/Run-LXCAO365RotateScheduled.ps1`  
-  Scheduled-task wrapper that reads config + secrets and invokes the core engine.
-
-Template config:
-
-- `examples/lxca-o365-rotate.config.json` (non-secret)
+The goal is safe, repeatable token rotation without manual LXCA GUI changes.
 
 ---
 
-## What the core script does
+## Audience and reading order
 
-`Rotate-LXCA-O365SmtpToken.ps1` can:
+If you are an operator implementing this end-to-end, read in this order:
 
-1. Authenticate to LXCA (`POST /sessions`)
-2. List monitors (`GET /events/monitors`)
-3. Rotate one email monitor token (`GET /events/monitors/{id}` + `PUT /events/monitors/{id}`)
-4. Update only OAuth-related monitor fields:
-   - `authenticationEmail`
-   - `usernameEmail`
-   - `passwordEmail`
-   - `description`
-5. Log out of LXCA (`DELETE /sessions`, best effort)
-
-No other monitor settings are intentionally modified.
+1. [Authentication modes (AppOnly vs DelegatedRefresh)](#authentication-modes-apponly-vs-delegatedrefresh)
+2. [Requirements](#requirements)
+3. [Connectivity requirements (important)](#connectivity-requirements-important)
+4. [Production architecture](#production-architecture)
+5. [Config JSON reference (with redacted examples)](#config-json-reference-with-redacted-examples)
+6. [Manual validation workflow (non-scheduled)](#manual-validation-workflow-non-scheduled)
+7. [Unattended production workflow (scheduled)](#unattended-production-workflow-scheduled)
 
 ---
 
-## Security model
+## Authentication modes (AppOnly vs DelegatedRefresh)
 
-### LXCA credentials
+This solution supports two OAuth token acquisition modes:
 
-- **Preferred:** pass `-LxcaCredential` (`PSCredential`) to `Rotate-LXCA-O365SmtpToken.ps1`.
-- **Legacy fallback:** `-LxcaUser` + `-LxcaPass` is still accepted for backward compatibility, but discouraged.
+### AppOnly (preferred long-term)
 
-### Unattended execution
+- Uses Entra app credentials (`TenantId`, `ClientId`, `ClientSecret`)
+- No user refresh token required
+- Better fit for unattended service automation
 
-For scheduled production runs, use:
+### DelegatedRefresh (bootstrap/compatibility path)
 
-- `Set-LXCAO365Secrets.ps1` to create DPAPI-protected secrets
-- `Run-LXCAO365RotateScheduled.ps1` to pass a `PSCredential` object into the core script
+- Uses a delegated **refresh token** obtained through device-code sign-in
+- Tied to a user/mailbox context
+- Useful when AppOnly permissions/tenant prerequisites are not yet complete
 
-This avoids passing LXCA password as a plain-text command-line argument to the core rotation script.
+> If you use DelegatedRefresh, first see [Delegated bootstrap helpers](#delegated-bootstrap-helpers) to obtain and store the refresh token.
 
 ---
 
@@ -73,17 +54,17 @@ This avoids passing LXCA password as a plain-text command-line argument to the c
 
 ### Microsoft 365 / Entra ID
 
-For AppOnly rotation:
+For **AppOnly**:
 
 - Tenant ID
 - Client ID
 - Client secret
 - SMTP mailbox/user identity (`SmtpUser`) valid for your flow
 
-For DelegatedRefresh rotation:
+For **DelegatedRefresh**:
 
 - Tenant ID
-- Client ID (public client flow enabled)
+- Client ID with public client flow enabled
 - Delegated refresh token
 
 ---
@@ -110,7 +91,94 @@ Typical placements:
 
 ## Manual validation workflow (non-scheduled)
 
-Use this first to prove connectivity and functional rotation before scheduler rollout.
+## Production architecture
+
+This implementation uses three first-class operational scripts:
+
+- `scripts/Rotate-LXCA-O365SmtpToken.ps1`  
+  Core engine (LXCA API login, monitor list/get/put, token update).
+- `scripts/Set-LXCAO365Secrets.ps1`  
+  Creates DPAPI-encrypted secrets XML for unattended execution.
+- `scripts/Run-LXCAO365RotateScheduled.ps1`  
+  Scheduled-task wrapper that reads config + secrets and invokes the core engine.
+
+Template config:
+
+- `examples/lxca-o365-rotate.config.json` (non-secret)
+
+### What the core script updates
+
+`Rotate-LXCA-O365SmtpToken.ps1` updates only:
+
+- `authenticationEmail`
+- `usernameEmail`
+- `passwordEmail`
+- `description`
+
+No other monitor fields are intentionally modified.
+
+### Credential handling model
+
+- **Preferred:** pass `-LxcaCredential` (`PSCredential`) to core script.
+- **Legacy fallback:** `-LxcaUser` + `-LxcaPass` remains accepted for backward compatibility, but discouraged.
+
+---
+
+## Config JSON reference (with redacted examples)
+
+The wrapper script (`Run-LXCAO365RotateScheduled.ps1`) consumes a **non-secret JSON config**.
+
+### Field reference
+
+- `AuthMode` *(required)*: `AppOnly` or `DelegatedRefresh`
+- `LxcaBaseUrl` *(required)*: LXCA base URL, e.g. `https://lxca01.example.local`
+- `LxcaUser` *(required)*: LXCA username used to build `PSCredential`
+- `MonitorId` *(required)*: target email monitor ID
+- `TenantId` *(required)*: tenant GUID or domain form
+- `ClientId` *(required)*: app/client ID
+- `SmtpUser` *(required)*: mailbox identity used by LXCA SMTP OAuth2
+- `DescriptionPrefix` *(optional)*: stamp prefix in monitor description
+- `ScriptPath` *(optional)*: override path to rotate script
+
+### AppOnly config example (redacted)
+
+```json
+{
+  "AuthMode": "AppOnly",
+  "LxcaBaseUrl": "https://lxca01.example.local",
+  "LxcaUser": "svc_lxca_rotate",
+  "MonitorId": "<monitor-id>",
+  "TenantId": "00000000-0000-0000-0000-000000000000",
+  "ClientId": "11111111-1111-1111-1111-111111111111",
+  "SmtpUser": "alerts@contoso.com",
+  "DescriptionPrefix": "O365 SMTP token rotated",
+  "ScriptPath": "..\\scripts\\Rotate-LXCA-O365SmtpToken.ps1"
+}
+```
+
+### DelegatedRefresh config example (redacted)
+
+```json
+{
+  "AuthMode": "DelegatedRefresh",
+  "LxcaBaseUrl": "https://lxca01.example.local",
+  "LxcaUser": "svc_lxca_rotate",
+  "MonitorId": "<monitor-id>",
+  "TenantId": "contoso.onmicrosoft.com",
+  "ClientId": "11111111-1111-1111-1111-111111111111",
+  "SmtpUser": "alerts@contoso.com",
+  "DescriptionPrefix": "O365 SMTP token rotated",
+  "ScriptPath": "..\\scripts\\Rotate-LXCA-O365SmtpToken.ps1"
+}
+```
+
+> Do **not** store client secrets, LXCA password, or refresh token in this JSON. Those belong in the encrypted secrets file.
+
+---
+
+## Manual validation workflow (non-scheduled)
+
+Use this workflow first to prove connectivity and functional rotation before scheduler rollout.
 
 ### 1) Discover monitor IDs
 
@@ -121,7 +189,7 @@ pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
   -ListMonitors
 ```
 
-### 2) Rotate using AppOnly
+### 2) Validate AppOnly rotation
 
 ```powershell
 $cred = Get-Credential
@@ -139,7 +207,9 @@ pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
   -DescriptionPrefix "O365 SMTP token rotated"
 ```
 
-### 3) Rotate using DelegatedRefresh
+### 3) Validate DelegatedRefresh rotation
+
+Before this step, complete [Delegated bootstrap helpers](#delegated-bootstrap-helpers) to create `delegated_refresh_token.txt`.
 
 ```powershell
 $cred = Get-Credential
@@ -160,7 +230,9 @@ pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
 
 ## Unattended production workflow (scheduled)
 
-### 1) Create secrets file (run once as scheduled task identity)
+### 1) Create encrypted secrets (run once as scheduled task identity)
+
+AppOnly secrets file:
 
 ```powershell
 pwsh ./scripts/Set-LXCAO365Secrets.ps1 `
@@ -168,7 +240,7 @@ pwsh ./scripts/Set-LXCAO365Secrets.ps1 `
   -IncludeClientSecret
 ```
 
-Delegated mode variant:
+DelegatedRefresh secrets file:
 
 ```powershell
 pwsh ./scripts/Set-LXCAO365Secrets.ps1 `
@@ -177,21 +249,10 @@ pwsh ./scripts/Set-LXCAO365Secrets.ps1 `
   -DelegatedRefreshTokenPath ./delegated_refresh_token.txt
 ```
 
-### 2) Build non-secret config JSON
+### 2) Create config JSON
 
-Start from `examples/lxca-o365-rotate.config.json`.
-
-Important keys:
-
-- `AuthMode` (`AppOnly` or `DelegatedRefresh`)
-- `LxcaBaseUrl`
-- `LxcaUser`
-- `MonitorId`
-- `TenantId`
-- `ClientId`
-- `SmtpUser`
-- `DescriptionPrefix` (optional)
-- `ScriptPath` (optional; defaults to `..\scripts\Rotate-LXCA-O365SmtpToken.ps1`)
+- Start from `examples/lxca-o365-rotate.config.json`
+- Populate fields using [Config JSON reference (with redacted examples)](#config-json-reference-with-redacted-examples)
 
 ### 3) Test wrapper interactively
 
@@ -233,26 +294,29 @@ Recommended cadence:
 
 ---
 
-## Delegated bootstrap helper scripts
+## Delegated bootstrap helpers
 
-For delegated token bootstrap and troubleshooting:
+Use these scripts when operating in `DelegatedRefresh` mode:
 
-- `scripts/Bootstrap-DelegatedSmtp.ps1`
-- `scripts/Get-DelegatedSmtpAccessToken.ps1`
+- `scripts/Bootstrap-DelegatedSmtp.ps1`  
+  Requests device code, guides user sign-in, and saves refresh token.
+- `scripts/Get-DelegatedSmtpAccessToken.ps1`  
+  Tests delegated refresh token exchange and optionally shows JWT claims.
 
-Suggested delegated bootstrap flow:
+### Typical delegated bootstrap flow
 
-1. Enable public client flow on Entra app.
-2. Run `Bootstrap-DelegatedSmtp.ps1` as the mailbox identity.
-3. Store refresh token via `Set-LXCAO365Secrets.ps1`.
-4. Run wrapper in `AuthMode: DelegatedRefresh`.
-5. Move to `AppOnly` when tenant/org prerequisites permit.
+1. In Entra app registration, enable public client flows.
+2. Run bootstrap as the mailbox identity used for SMTP send-as.
+3. Save resulting refresh token to a secure path.
+4. Import token into DPAPI secrets with `Set-LXCAO365Secrets.ps1`.
+5. Configure wrapper with `AuthMode: DelegatedRefresh`.
+6. When possible, migrate to AppOnly.
 
 ---
 
 ## Operational notes
 
 - On read, LXCA may return `passwordEmail` as a secret reference/GUID.
-- On update, writing a new bearer token updates secret value behind that reference.
+- On update, writing a new bearer token updates the secret value behind that reference.
 - Keep secrets and generated token files out of source control.
 
