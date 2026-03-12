@@ -35,6 +35,10 @@ EXAMPLES
 
   # IMPORTANT: do not quote the expression, e.g. use (Get-Credential), not "(Get-Credential)".
 
+  # If launching pwsh from Windows PowerShell (powershell.exe), call Get-Credential inside pwsh
+  # so the PSCredential object is created in the same process:
+  # pwsh -NoProfile -Command '& ./scripts/Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaCredential (Get-Credential) -ListMonitors'
+
   # Backward-compatibility mode (discouraged)
   .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaUser admin -LxcaPass "*****" -ListMonitors
 
@@ -341,11 +345,31 @@ function Get-LxcaCredential {
 
   if ($null -ne $LxcaCredential) {
     if ($LxcaCredential -is [PSCredential]) { return $LxcaCredential }
-    throw "Invalid -LxcaCredential value type: $($LxcaCredential.GetType().FullName). Pass a PSCredential object (for example: -LxcaCredential (Get-Credential)). Do not quote (Get-Credential)."
+
+    if ($LxcaCredential -is [string] -and -not [string]::IsNullOrWhiteSpace($LxcaCredential)) {
+      # Common when launching pwsh from Windows PowerShell with:
+      #   pwsh ./script.ps1 -LxcaCredential (Get-Credential)
+      # The object is marshaled as text across process boundaries.
+      $u = [string]$LxcaCredential
+      if ($u -eq "System.Management.Automation.PSCredential") { $u = $null }
+
+      Write-Information "-LxcaCredential was received as text (likely cross-process argument marshalling). Prompting for LXCA credentials in this pwsh session..." -InformationAction Continue
+      if ([string]::IsNullOrWhiteSpace($u)) {
+        return Get-Credential -Message "Enter LXCA credentials"
+      }
+      return Get-Credential -UserName $u -Message "Enter LXCA credentials"
+    }
+
+    throw "Unsupported -LxcaCredential value type: $($LxcaCredential.GetType().FullName). Pass a PSCredential object, or omit -LxcaCredential and let this script prompt."
+  }
+
+  if ([string]::IsNullOrWhiteSpace($LxcaUser) -and [string]::IsNullOrWhiteSpace($LxcaPass)) {
+    Write-Information "No LXCA credential supplied. Prompting for LXCA credentials..." -InformationAction Continue
+    return Get-Credential -Message "Enter LXCA credentials"
   }
 
   if ([string]::IsNullOrWhiteSpace($LxcaUser) -or [string]::IsNullOrWhiteSpace($LxcaPass)) {
-    throw "Missing LXCA credentials. Provide -LxcaCredential (preferred), or legacy -LxcaUser and -LxcaPass."
+    throw "Provide both -LxcaUser and -LxcaPass, or use -LxcaCredential."
   }
 
   Write-Warning "Using legacy -LxcaUser/-LxcaPass plaintext parameters. Prefer -LxcaCredential."
