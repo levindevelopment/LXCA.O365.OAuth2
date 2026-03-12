@@ -412,3 +412,23 @@ MIT
 
 > This project is provided in a personal capacity and is not an official or
 > supported product of Lenovo or Microsoft.
+
+---
+
+## Release workflow (tag-driven)
+
+This repository now includes a GitHub Actions workflow that automatically packages and publishes a GitHub Release whenever you push a version tag matching `v*` (for example `v1.0.0`).
+
+What it does on each matching tag push:
+- Creates `.tar.gz` and `.zip` source archives from the tagged commit
+- Generates SHA256 checksum files for both archives
+- Publishes (or updates) a GitHub Release for that tag with generated release notes and uploads the artifacts
+
+Workflow file:
+- `.github/workflows/release-on-tag.yml`
+
+Example:
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
