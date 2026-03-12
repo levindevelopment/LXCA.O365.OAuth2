@@ -95,7 +95,9 @@ try {
       $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($me,"FullControl","Allow")
       $acl.SetAccessRule($rule)
       Set-Acl -LiteralPath $tmpRtPath -AclObject $acl
-    } catch { }
+    } catch {
+      Write-Warning ("ACL hardening failed for temporary refresh token file '{0}': {1}" -f $tmpRtPath, $_.Exception.Message)
+    }
 
     $commonArgs += @("-RefreshTokenPath", $tmpRtPath)
   }
