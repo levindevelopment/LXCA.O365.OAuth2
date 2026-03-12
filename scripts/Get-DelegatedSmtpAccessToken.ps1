@@ -1,3 +1,4 @@
+[CmdletBinding()]
 param(
   [Parameter(Mandatory)] [string] $TenantId,
   [Parameter(Mandatory)] [string] $ClientId,
@@ -21,9 +22,9 @@ $tok = Invoke-RestMethod -Method Post `
 $tok.access_token | Set-Content -NoNewline -Encoding ascii $OutTokenPath
 
 # Print only safe metadata
-Write-Host "Wrote access token to: $OutTokenPath"
-Write-Host "token_type: $($tok.token_type)"
-Write-Host "expires_in: $($tok.expires_in) seconds"
+Write-Information "Wrote access token to: $OutTokenPath" -InformationAction Continue
+Write-Verbose "token_type: $($tok.token_type)"
+Write-Information "expires_in: $($tok.expires_in) seconds" -InformationAction Continue
 
 if ($ShowClaims) {
   function Decode-JwtPayload {

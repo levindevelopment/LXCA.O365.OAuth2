@@ -74,7 +74,7 @@ if ($IncludeDelegatedRefreshToken) {
     if ([string]::IsNullOrWhiteSpace($raw)) { throw "DelegatedRefreshTokenPath is empty." }
     $rtSec = PlainTextToSecureString -Text $raw
   } else {
-    Write-Host "Paste delegated refresh token (will not echo), then press Enter." -ForegroundColor Yellow
+    Write-Warning "Paste delegated refresh token (will not echo), then press Enter."
     $rtSec = Read-SecretSecureString -Prompt "Delegated refresh token"
   }
   $secrets.DelegatedRefreshTokenDpapi = SecureStringToDpapiString $rtSec
@@ -84,5 +84,5 @@ $dir = Split-Path -Parent $OutFile
 if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
 
 $secrets | Export-Clixml -LiteralPath $OutFile
-Write-Host "Wrote secrets to: $OutFile"
-Write-Host "DPAPI scope: CurrentUser (scheduled task must run under same user profile)."
+Write-Information "Wrote secrets to: $OutFile" -InformationAction Continue
+Write-Information "DPAPI scope: CurrentUser (scheduled task must run under same user profile)." -InformationAction Continue
