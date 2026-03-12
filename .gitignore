@@ -17,3 +17,5 @@ delegated_refresh_token.txt
 examples/**/delegated_refresh_token*.txt
 examples/**/o365_token*.jwt
 scripts/test/o365_xoauth2_test.py
+secrets/lxca-o365-rotate.secrets.xml
+examples/lxca-o365-rotate.config-test.json
