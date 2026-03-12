@@ -87,7 +87,9 @@ Typical placements:
 - Management VM
 - Secure jump host
 
----
+## Manual validation workflow (non-scheduled)
+
+## Manual validation workflow (non-scheduled)
 
 ## Production architecture
 
