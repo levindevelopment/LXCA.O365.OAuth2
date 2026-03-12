@@ -30,7 +30,7 @@ SECURITY
   - For Task Scheduler, prefer: SecretManagement, Windows Credential Manager, or a DPAPI-encrypted file.
 
 EXAMPLES
-  # Get all monitors (preferred)
+  # Get all monitors (preferred). You should see ONE credential prompt here (for LXCA).
   .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaCredential (Get-Credential) -ListMonitors
 
   # Backward-compatibility mode (discouraged)
@@ -53,7 +53,7 @@ param(
   # NOTE: These are NOT marked Mandatory so the file can be dot-sourced to import functions.
   # When running as a script (not dot-sourced), parameter validation is enforced in Main.
   [string] $LxcaBaseUrl,
-  [PSCredential] $LxcaCredential,
+  [object] $LxcaCredential,
 
   # Backward compatibility (discouraged)
   [string] $LxcaUser,
@@ -250,8 +250,8 @@ function Disconnect-Lxca {
   }
 }
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 function Update-LxcaToken {
+  [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
   param(
     [Parameter(Mandatory)] [pscustomobject] $Conn,
     [Parameter(Mandatory)] [string] $MonitorId,
@@ -332,12 +332,15 @@ function ConvertTo-SecureStringFromPlainText {
 
 function Get-LxcaCredential {
   param(
-    [PSCredential] $LxcaCredential,
+    [object] $LxcaCredential,
     [string] $LxcaUser,
     [string] $LxcaPass
   )
 
-  if ($null -ne $LxcaCredential) { return $LxcaCredential }
+  if ($null -ne $LxcaCredential) {
+    if ($LxcaCredential -is [PSCredential]) { return $LxcaCredential }
+    throw "Invalid -LxcaCredential value type: $($LxcaCredential.GetType().FullName). Pass a PSCredential object (for example: -LxcaCredential (Get-Credential)). Do not quote (Get-Credential)."
+  }
 
   if ([string]::IsNullOrWhiteSpace($LxcaUser) -or [string]::IsNullOrWhiteSpace($LxcaPass)) {
     throw "Missing LXCA credentials. Provide -LxcaCredential (preferred), or legacy -LxcaUser and -LxcaPass."
