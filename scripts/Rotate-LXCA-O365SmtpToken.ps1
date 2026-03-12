@@ -159,6 +159,18 @@ function ConvertTo-PlainText {
   finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 }
 
+function Get-InvokeRestErrorMessage {
+  param(
+    [Parameter(Mandatory)] $ErrorRecord
+  )
+
+  if ($ErrorRecord.ErrorDetails -and -not [string]::IsNullOrWhiteSpace($ErrorRecord.ErrorDetails.Message)) {
+    return [string]$ErrorRecord.ErrorDetails.Message
+  }
+
+  return [string]$ErrorRecord.Exception.Message
+}
+
 function Connect-Lxca {
   <#
     .SYNOPSIS
@@ -175,8 +187,15 @@ function Connect-Lxca {
   $passwordPlain = ConvertTo-PlainText -Secure $Credential.Password
   try {
     $loginBody = @{ UserId = $Credential.UserName; password = $passwordPlain } | ConvertTo-Json
-    $null = Invoke-RestMethod -Method Post -Uri ($BaseUrl.TrimEnd("/") + "/sessions") `
-      -ContentType "application/json; charset=UTF-8" -Body $loginBody -SessionVariable s -SkipCertificateCheck
+    try {
+      $null = Invoke-RestMethod -Method Post -Uri ($BaseUrl.TrimEnd("/") + "/sessions") `
+        -ContentType "application/json; charset=UTF-8" -Body $loginBody -SessionVariable s -SkipCertificateCheck
+    }
+    catch {
+      $serviceTarget = ($BaseUrl.TrimEnd("/") + "/sessions")
+      $detail = Get-InvokeRestErrorMessage -ErrorRecord $_
+      throw "Failed to authenticate to Lenovo XClarity Administrator (LXCA) login API at '$serviceTarget' using user '$($Credential.UserName)'. API error: $detail"
+    }
   }
   finally {
     $passwordPlain = $null
