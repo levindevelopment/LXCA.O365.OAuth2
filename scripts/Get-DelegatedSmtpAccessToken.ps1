@@ -27,7 +27,7 @@ Write-Verbose "token_type: $($tok.token_type)"
 Write-Information "expires_in: $($tok.expires_in) seconds" -InformationAction Continue
 
 if ($ShowClaims) {
-  function Decode-JwtPayload {
+  function ConvertFrom-JwtPayload {
     param([Parameter(Mandatory)][string]$Jwt)
     $p = $Jwt.Split('.')[1].Replace('-','+').Replace('_','/')
     switch ($p.Length % 4) { 2 {$p+='=='} 3 {$p+='='} }
@@ -35,6 +35,6 @@ if ($ShowClaims) {
     $json | ConvertFrom-Json
   }
 
-  $claims = Decode-JwtPayload $tok.access_token
+  $claims = ConvertFrom-JwtPayload $tok.access_token
   $claims | Select-Object aud, iss, tid, scp, roles, exp | Format-List
 }

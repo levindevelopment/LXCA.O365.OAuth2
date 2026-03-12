@@ -30,10 +30,10 @@ SECURITY
   - For Task Scheduler, prefer: SecretManagement, Windows Credential Manager, or a DPAPI-encrypted file.
 
 EXAMPLES
-  # List all monitors
+  # Get all monitors
   .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaUser admin -LxcaPass "*****" -ListMonitors
 
-  # List email forwarders only, filtered by name
+  # Get email forwarders only, filtered by name
   .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaUser admin -LxcaPass "*****" -ListMonitors -EmailOnly -NameLike "API Test"
 
   # Rotate token for a specific monitor id (updates token fields + description only)
@@ -204,7 +204,7 @@ function Invoke-LxcaJson {
   Invoke-RestMethod @p
 }
 
-function List-LxcaMonitors {
+function Get-LxcaMonitor {
   param([Parameter(Mandatory)] [pscustomobject] $Conn)
 
   $monitors = Invoke-LxcaJson -Conn $Conn -Method GET -Path "/events/monitors"
@@ -233,7 +233,7 @@ function Disconnect-Lxca {
   }
 }
 
-function Rotate-LxcaToken {
+function Update-LxcaToken {
   param([Parameter(Mandatory)] [pscustomobject] $Conn)
 
   # Validate required params for token rotation
@@ -301,11 +301,11 @@ function Main {
     $conn = Connect-Lxca -BaseUrl $LxcaBaseUrl -Username $LxcaUser -Password $LxcaPass
 
     if ($ListMonitors) {
-      List-LxcaMonitors -Conn $conn
+      Get-LxcaMonitor -Conn $conn
       return
     }
     if ($RotateToken) {
-      Rotate-LxcaToken -Conn $conn
+      Update-LxcaToken -Conn $conn
       return
     }
   } finally {
