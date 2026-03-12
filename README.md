@@ -415,27 +415,29 @@ MIT
 
 ---
 
-## Release workflow (tag-driven)
+## Release workflow (private-repo friendly)
 
-This repository includes a GitHub Actions workflow that packages artifacts on demand and publishes a GitHub Release when a `v*` tag is pushed (for example `v1.0.0`).
+This repository includes a GitHub Actions workflow that cleanly separates packaging from release publishing and works for private repositories.
 
 What it does:
-- Builds `.tar.gz` and `.zip` source archives from the commit/tag being packaged
+- Builds `.tar.gz` and `.zip` source archives from the selected git ref
 - Generates SHA256 checksum files for both archives
 - Uploads package artifacts to the workflow run
-- Publishes artifacts to the GitHub Release when the workflow is running for a tag (using the preinstalled GitHub CLI and the pushed tag reference)
+- Publishes assets to a GitHub Release using `softprops/action-gh-release` when a release tag is provided (tag push or manual input)
 
 Workflow file:
 - `.github/workflows/release-on-tag.yml`
 
 Examples:
 ```bash
-# Tag-triggered release publish
+# Tag-triggered packaging + release publish
 git tag v1.0.0
 git push origin v1.0.0
 ```
 
-Manual fallback:
-- Run **Actions → Package and Publish Release → Run workflow**
-- Optionally set `package_version` (otherwise a UTC timestamp is used)
-- Manual runs package artifacts and upload them to the workflow run artifacts
+Manual runs:
+- Run **Actions → Build and Publish Release Artifacts → Run workflow**
+- `target_ref` (optional): branch, commit SHA, or tag to package (defaults to current commit)
+- `package_version` (optional): version text used in artifact filenames
+- `release_tag` (optional): if provided, the workflow also publishes/replaces assets for that tag
+- Without `release_tag`, manual runs only package and upload build artifacts
