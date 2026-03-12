@@ -218,7 +218,11 @@ function Invoke-LxcaJson {
 }
 
 function Get-LxcaMonitor {
-  param([Parameter(Mandatory)] [pscustomobject] $Conn)
+  param(
+    [Parameter(Mandatory)] [pscustomobject] $Conn,
+    [switch] $EmailOnly,
+    [string] $NameLike
+  )
 
   $monitors = Invoke-LxcaJson -Conn $Conn -Method GET -Path "/events/monitors"
 
@@ -246,8 +250,19 @@ function Disconnect-Lxca {
   }
 }
 
+[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 function Update-LxcaToken {
-  param([Parameter(Mandatory)] [pscustomobject] $Conn)
+  param(
+    [Parameter(Mandatory)] [pscustomobject] $Conn,
+    [Parameter(Mandatory)] [string] $MonitorId,
+    [Parameter(Mandatory)] [string] $TenantId,
+    [Parameter(Mandatory)] [string] $ClientId,
+    [string] $ClientSecret,
+    [ValidateSet("AppOnly","DelegatedRefresh")] [string] $AuthMode = "AppOnly",
+    [string] $RefreshTokenPath,
+    [Parameter(Mandatory)] [string] $SmtpUser,
+    [string] $DescriptionPrefix = "O365 token rotated"
+  )
 
   # Validate required params for token rotation
   foreach ($pair in @(
@@ -284,6 +299,11 @@ function Update-LxcaToken {
   $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
   $m.description = "$DescriptionPrefix $stamp"
 
+  if (-not $PSCmdlet.ShouldProcess("LXCA monitor $MonitorId", "Rotate O365 SMTP OAuth2 token and update monitor fields")) {
+    Write-Verbose "Skipped monitor update due to WhatIf/Confirm response."
+    return
+  }
+
   Invoke-LxcaJson -Conn $Conn -Method PUT -Path "/events/monitors/$MonitorId" -Body $m | Out-Null
 
   $after = Invoke-LxcaJson -Conn $Conn -Method GET -Path "/events/monitors/$MonitorId"
@@ -299,7 +319,24 @@ function Update-LxcaToken {
   } | Format-List
 }
 
+function ConvertTo-SecureStringFromPlainText {
+  param([Parameter(Mandatory)] [string] $PlainText)
+
+  $secure = [Security.SecureString]::new()
+  foreach ($char in $PlainText.ToCharArray()) {
+    $secure.AppendChar($char)
+  }
+  $secure.MakeReadOnly()
+  return $secure
+}
+
 function Get-LxcaCredential {
+  param(
+    [PSCredential] $LxcaCredential,
+    [string] $LxcaUser,
+    [string] $LxcaPass
+  )
+
   if ($null -ne $LxcaCredential) { return $LxcaCredential }
 
   if ([string]::IsNullOrWhiteSpace($LxcaUser) -or [string]::IsNullOrWhiteSpace($LxcaPass)) {
@@ -307,7 +344,7 @@ function Get-LxcaCredential {
   }
 
   Write-Warning "Using legacy -LxcaUser/-LxcaPass plaintext parameters. Prefer -LxcaCredential."
-  $securePass = ConvertTo-SecureString -String $LxcaPass -AsPlainText -Force
+  $securePass = ConvertTo-SecureStringFromPlainText -PlainText $LxcaPass
   return [PSCredential]::new($LxcaUser, $securePass)
 }
 
@@ -322,16 +359,18 @@ function Main {
   }
 
   $conn = $null
-  $credential = Get-LxcaCredential
+  $credential = Get-LxcaCredential -LxcaCredential $LxcaCredential -LxcaUser $LxcaUser -LxcaPass $LxcaPass
   try {
     $conn = Connect-Lxca -BaseUrl $LxcaBaseUrl -Credential $credential
 
     if ($ListMonitors) {
-      Get-LxcaMonitor -Conn $conn
+      Get-LxcaMonitor -Conn $conn -EmailOnly:$EmailOnly -NameLike $NameLike
       return
     }
     if ($RotateToken) {
-      Update-LxcaToken -Conn $conn
+      Update-LxcaToken -Conn $conn -MonitorId $MonitorId -TenantId $TenantId -ClientId $ClientId `
+        -ClientSecret $ClientSecret -AuthMode $AuthMode -RefreshTokenPath $RefreshTokenPath `
+        -SmtpUser $SmtpUser -DescriptionPrefix $DescriptionPrefix
       return
     }
   } finally {
