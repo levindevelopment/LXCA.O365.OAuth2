@@ -1,3 +1,4 @@
+[CmdletBinding()]
 param(
   [Parameter(Mandatory)] [string] $TenantId,   # GUID or tenant.onmicrosoft.com
   [Parameter(Mandatory)] [string] $ClientId,
@@ -15,11 +16,11 @@ $dc = Invoke-RestMethod -Method Post `
     scope     = $scope
   }
 
-Write-Host ""
-Write-Host "Sign in as: $Upn"
-Write-Host "Go to: $($dc.verification_uri)"
-Write-Host "Enter code: $($dc.user_code)"
-Write-Host ""
+Write-Information "" -InformationAction Continue
+Write-Information "Sign in as: $Upn" -InformationAction Continue
+Write-Information "Go to: $($dc.verification_uri)" -InformationAction Continue
+Write-Information "Enter code: $($dc.user_code)" -InformationAction Continue
+Write-Information "" -InformationAction Continue
 
 # 2) Poll token endpoint
 $tokenUri = "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token"
@@ -37,13 +38,13 @@ while ((Get-Date) -lt $deadline) {
   if ($status -eq 200 -and $tok) {
     if ($tok.refresh_token) {
       Set-Content -Path $OutFile -Value $tok.refresh_token -NoNewline -Encoding ascii
-      Write-Host "Saved refresh token to $OutFile"
-      Write-Host "Access token expires_in: $($tok.expires_in)"
+      Write-Information "Saved refresh token to $OutFile" -InformationAction Continue
+      Write-Information "Access token expires_in: $($tok.expires_in)" -InformationAction Continue
       return
     }
 
-    Write-Host "200 OK but no refresh_token returned:" -ForegroundColor Yellow
-    $tok | ConvertTo-Json -Depth 6 | Write-Host
+    Write-Warning "200 OK but no refresh_token returned:"
+    $tok | ConvertTo-Json -Depth 6 | Write-Information -InformationAction Continue
     return
   }
 
@@ -65,7 +66,7 @@ while ((Get-Date) -lt $deadline) {
     $desc = $raw
   }
 
-  Write-Host "Device-code poll: $err - $desc" -ForegroundColor DarkGray
+  Write-Verbose "Device-code poll: $err - $desc"
 
   switch ($err) {
     "authorization_pending" { Start-Sleep -Seconds ([int]$dc.interval); continue }

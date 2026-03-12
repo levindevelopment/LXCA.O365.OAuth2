@@ -47,6 +47,7 @@ EXAMPLES
   # pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\Rotate-LXCA-O365SmtpToken.ps1" <args...>
 #>
 
+[CmdletBinding()]
 param(
   # --- LXCA ---
   # NOTE: These are NOT marked Mandatory so the file can be dot-sourced to import functions.
@@ -258,7 +259,7 @@ $tok = if ($AuthMode -eq "DelegatedRefresh") {
   } else {
     Get-O365AccessToken_AppOnly -TenantId $TenantId -ClientId $ClientId -ClientSecret $ClientSecret
   }
-  Write-Host ("Minted O365 token ({0}); expires UTC: {1}" -f $AuthMode, $tok.expires_at) -ForegroundColor Cyan
+  Write-Information ("Minted O365 token ({0}); expires UTC: {1}" -f $AuthMode, $tok.expires_at) -InformationAction Continue
 
   $m = Invoke-LxcaJson -Conn $Conn -Method GET -Path "/events/monitors/$MonitorId"
 
