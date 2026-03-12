@@ -1,0 +1,88 @@
+name: Package and Publish Release
+
+on:
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to package and release (for manual reruns, e.g. v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  package-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve tag
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+
+          if [[ -z "${TAG}" ]]; then
+            echo "Tag could not be resolved." >&2
+            exit 1
+          fi
+
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved tag: ${TAG}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure tag exists locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.meta.outputs.tag }}'
+          git fetch --force --tags origin
+          git rev-parse --verify "refs/tags/${TAG}" >/dev/null
+
+      - name: Build release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG='${{ steps.meta.outputs.tag }}'
+          DIST_DIR="dist"
+          mkdir -p "${DIST_DIR}"
+
+          ARCHIVE_BASENAME="lxca-o365-oauth2-${TAG}"
+
+          git archive --format=tar.gz \
+            --output "${DIST_DIR}/${ARCHIVE_BASENAME}.tar.gz" \
+            "${TAG}"
+
+          git archive --format=zip \
+            --output "${DIST_DIR}/${ARCHIVE_BASENAME}.zip" \
+            "${TAG}"
+
+          sha256sum "${DIST_DIR}/${ARCHIVE_BASENAME}.tar.gz" > "${DIST_DIR}/${ARCHIVE_BASENAME}.tar.gz.sha256"
+          sha256sum "${DIST_DIR}/${ARCHIVE_BASENAME}.zip" > "${DIST_DIR}/${ARCHIVE_BASENAME}.zip.sha256"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ steps.meta.outputs.tag }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
