@@ -255,6 +255,7 @@ pwsh ./scripts/Set-LXCAO365Secrets.ps1 `
   -IncludeDelegatedRefreshToken `
   -DelegatedRefreshTokenPath ./delegated_refresh_token.txt
 ```
+<img width="891" height="203" alt="image" src="https://github.com/user-attachments/assets/e1c06508-671c-4f60-a0b1-d7361413b439" />
 
 ### 2) Create config JSON
 
