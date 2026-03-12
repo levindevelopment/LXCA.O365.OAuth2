@@ -4,6 +4,14 @@ This repository provides PowerShell 7 automation to rotate OAuth2 bearer tokens 
 
 The goal is safe, repeatable token rotation without manual LXCA GUI changes.
 
+## Disclosure and warranty
+
+- I work for Lenovo, but this project is a personal/community contribution.
+- This repository is **not** an official Lenovo or Microsoft product.
+- It is **not supported** by Lenovo or Microsoft.
+- It is provided **as-is**, without warranties of any kind (express or implied).
+- You are responsible for validation, security review, and change control in your environment.
+
 ---
 
 ## Audience and reading order
@@ -86,8 +94,6 @@ Typical placements:
 - Admin workstation
 - Management VM
 - Secure jump host
-
-## Production architecture
 
 ## Production architecture
 
@@ -321,3 +327,33 @@ Use these scripts when operating in `DelegatedRefresh` mode:
 - On update, writing a new bearer token updates the secret value behind that reference.
 - Keep secrets and generated token files out of source control.
 
+---
+
+## TODO
+
+Potential future hardening (optional enhancements):
+
+- Add a lightweight preflight mode that validates DNS/TCP reachability before attempting rotation.
+- Add structured log output (JSON lines) for SIEM ingestion.
+- Add Pester tests around argument validation and payload field constraints.
+
+---
+
+## External references (authoritative docs)
+
+Use these sources to validate implementation assumptions and tenant-specific prerequisites:
+
+- Microsoft: OAuth for SMTP/IMAP/POP (including SMTP.Send scope)
+  - <https://learn.microsoft.com/exchange/client-developer/legacy-protocols/how-to-authenticate-an-imap-pop-smtp-application-by-using-oauth>
+- Microsoft identity platform: client credentials grant
+  - <https://learn.microsoft.com/entra/identity-platform/v2-oauth2-client-creds-grant-flow>
+- Microsoft identity platform: refresh tokens and lifecycle behavior
+  - <https://learn.microsoft.com/entra/identity-platform/refresh-tokens>
+- Exchange Online SMTP AUTH overview and tenant/mailbox controls
+  - <https://learn.microsoft.com/exchange/clients-and-mobile-in-exchange-online/authenticated-client-smtp-submission>
+- Lenovo XClarity Administrator documentation portal (use your installed LXCA version selector)
+  - <https://pubs.lenovo.com/lxca/>
+- Lenovo XClarity Administrator REST API reference (version-specific)
+  - <https://pubs.lenovo.com/lxca_restapi/>
+
+> Note: Always align to your exact LXCA firmware/doc version and your tenant’s Entra/Exchange security policies, as behavior and prerequisites can differ by version and policy baseline.
