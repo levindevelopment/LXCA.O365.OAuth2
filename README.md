@@ -4,6 +4,14 @@ This repository provides PowerShell 7 automation to rotate OAuth2 bearer tokens 
 
 The goal is safe, repeatable token rotation without manual LXCA GUI changes.
 
+## Disclosure and warranty
+
+- I work for Lenovo, but this project is a personal/community contribution.
+- This repository is **not** an official Lenovo or Microsoft product.
+- It is **not supported** by Lenovo or Microsoft.
+- It is provided **as-is**, without warranties of any kind (express or implied).
+- You are responsible for validation, security review, and change control in your environment.
+
 ---
 
 ## Audience and reading order
