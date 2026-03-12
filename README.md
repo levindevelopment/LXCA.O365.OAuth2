@@ -423,7 +423,7 @@ What it does:
 - Builds `.tar.gz` and `.zip` source archives from the commit/tag being packaged
 - Generates SHA256 checksum files for both archives
 - Uploads package artifacts to the workflow run
-- Publishes artifacts to the GitHub Release when the workflow is running for a tag (using the preinstalled GitHub CLI on the runner)
+- Publishes artifacts to the GitHub Release when the workflow is running for a tag (using the preinstalled GitHub CLI and the pushed tag reference)
 
 Workflow file:
 - `.github/workflows/release-on-tag.yml`
