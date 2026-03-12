@@ -1,4 +1,4 @@
-<# 
+﻿<#
 .SYNOPSIS
   Creates/updates an encrypted secrets file (DPAPI) for the LXCA→M365 SMTP OAuth2 token rotator.
 
