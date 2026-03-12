@@ -250,8 +250,8 @@ function Disconnect-Lxca {
   }
 }
 
-[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 function Update-LxcaToken {
+  [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
   param(
     [Parameter(Mandatory)] [pscustomobject] $Conn,
     [Parameter(Mandatory)] [string] $MonitorId,
