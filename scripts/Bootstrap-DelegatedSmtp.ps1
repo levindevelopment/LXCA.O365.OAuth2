@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory)] [string] $TenantId,   # GUID or tenant.onmicrosoft.com
-  [Parameter(Mandatory)] [string] $ClientId,
+  [Parameter(Mandatory)] [string] $EntraTenantId,   # GUID or tenant.onmicrosoft.com
+  [Parameter(Mandatory)] [string] $EntraClientId,
   [Parameter(Mandatory)] [string] $Upn,        # expected sign-in (informational)
   [string] $OutFile = ".\delegated_refresh_token.txt"
 )
@@ -10,9 +10,9 @@ $scope = "offline_access https://outlook.office.com/SMTP.Send"
 
 # 1) Request device code
 $dc = Invoke-RestMethod -Method Post `
-  -Uri "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/devicecode" `
+  -Uri "https://login.microsoftonline.com/$EntraTenantId/oauth2/v2.0/devicecode" `
   -Body @{
-    client_id = $ClientId
+    client_id = $EntraClientId
     scope     = $scope
   }
 
@@ -23,7 +23,7 @@ Write-Information "Enter code: $($dc.user_code)" -InformationAction Continue
 Write-Information "" -InformationAction Continue
 
 # 2) Poll token endpoint
-$tokenUri = "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token"
+$tokenUri = "https://login.microsoftonline.com/$EntraTenantId/oauth2/v2.0/token"
 $deadline = (Get-Date).AddSeconds([int]$dc.expires_in)
 
 while ((Get-Date) -lt $deadline) {
@@ -31,7 +31,7 @@ while ((Get-Date) -lt $deadline) {
   $status = $null
   $tok = Invoke-RestMethod -Method Post -Uri $tokenUri -Body @{
     grant_type  = "urn:ietf:params:oauth:grant-type:device_code"
-    client_id   = $ClientId
+    client_id   = $EntraClientId
     device_code = $dc.device_code
   } -SkipHttpErrorCheck -StatusCodeVariable status -ErrorAction SilentlyContinue
 
@@ -52,7 +52,7 @@ while ((Get-Date) -lt $deadline) {
   # So re-run once to fetch the error payload reliably as plain text using Invoke-WebRequest.
   $w = Invoke-WebRequest -Method Post -Uri $tokenUri -Body @{
     grant_type  = "urn:ietf:params:oauth:grant-type:device_code"
-    client_id   = $ClientId
+    client_id   = $EntraClientId
     device_code = $dc.device_code
   } -SkipHttpErrorCheck -ErrorAction SilentlyContinue
 

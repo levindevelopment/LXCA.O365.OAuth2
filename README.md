@@ -34,7 +34,7 @@ This solution supports two OAuth token acquisition modes:
 
 ### AppOnly (preferred long-term)
 
-- Uses Entra app credentials (`TenantId`, `ClientId`, `ClientSecret`)
+- Uses Entra app credentials (`EntraTenantId`, `EntraClientId`, `ClientSecret`)
 - No user refresh token required
 - Better fit for unattended service automation
 
@@ -64,15 +64,15 @@ This solution supports two OAuth token acquisition modes:
 
 For **AppOnly**:
 
-- Tenant ID
-- Client ID
+- EntraTenantId
+- EntraClientId
 - Client secret
 - SMTP mailbox/user identity (`SmtpUser`) valid for your flow
 
 For **DelegatedRefresh**:
 
-- Tenant ID
-- Client ID with public client flow enabled
+- EntraTenantId
+- EntraClientId with public client flow enabled
 - Delegated refresh token
 
 ---
@@ -138,10 +138,12 @@ The wrapper script (`Run-LXCAO365RotateScheduled.ps1`) consumes a **non-secret J
 - `LxcaBaseUrl` *(required)*: LXCA base URL, e.g. `https://lxca01.example.local`
 - `LxcaUser` *(required)*: LXCA username used to build `PSCredential`
 - `MonitorId` *(required)*: target email monitor ID
-- `TenantId` *(required)*: tenant GUID or domain form
-- `ClientId` *(required)*: app/client ID
+- `EntraTenantId` *(required)*: Microsoft Entra tenant identifier (GUID or tenant domain)
+- `EntraClientId` *(required)*: Microsoft Entra app registration client ID
 - `SmtpUser` *(required)*: mailbox identity used by LXCA SMTP OAuth2
-- `DescriptionPrefix` *(optional)*: stamp prefix in monitor description
+- `DescriptionPrefix` *(optional)*: stamp prefix in monitor description (default: `O365 token rotated`)
+  - Rotation description format: `<DescriptionPrefix> <rotation-utc-stamp> (exp <token-expiry-utc>)`
+  - Example: `O365 token rotated 2026-03-13T00:39:29Z (exp 2026-03-13T01:25:14Z)`
 - `ScriptPath` *(optional)*: override path to rotate script
 
 ### AppOnly config example (redacted)
@@ -152,8 +154,8 @@ The wrapper script (`Run-LXCAO365RotateScheduled.ps1`) consumes a **non-secret J
   "LxcaBaseUrl": "https://lxca01.example.local",
   "LxcaUser": "svc_lxca_rotate",
   "MonitorId": "<monitor-id>",
-  "TenantId": "00000000-0000-0000-0000-000000000000",
-  "ClientId": "11111111-1111-1111-1111-111111111111",
+  "EntraTenantId": "00000000-0000-0000-0000-000000000000",
+  "EntraClientId": "11111111-1111-1111-1111-111111111111",
   "SmtpUser": "alerts@contoso.com",
   "DescriptionPrefix": "O365 SMTP token rotated",
   "ScriptPath": "..\\scripts\\Rotate-LXCA-O365SmtpToken.ps1"
@@ -168,8 +170,8 @@ The wrapper script (`Run-LXCAO365RotateScheduled.ps1`) consumes a **non-secret J
   "LxcaBaseUrl": "https://lxca01.example.local",
   "LxcaUser": "svc_lxca_rotate",
   "MonitorId": "<monitor-id>",
-  "TenantId": "00000000-0000-0000-0000-000000000000",
-  "ClientId": "11111111-1111-1111-1111-111111111111",
+  "EntraTenantId": "00000000-0000-0000-0000-000000000000",
+  "EntraClientId": "11111111-1111-1111-1111-111111111111",
   "SmtpUser": "alerts@contoso.com",
   "DescriptionPrefix": "O365 SMTP token rotated",
   "ScriptPath": "..\\scripts\\Rotate-LXCA-O365SmtpToken.ps1"
@@ -207,8 +209,8 @@ pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
   -RotateToken `
   -AuthMode AppOnly `
   -MonitorId "<monitor-id>" `
-  -TenantId "<tenant-guid>" `
-  -ClientId "<app-guid>" `
+  -EntraTenantId "<tenant-guid>" `
+  -EntraClientId "<app-guid>" `
   -ClientSecret "<secret-value>" `
   -SmtpUser "alerts@yourdomain.com" `
   -DescriptionPrefix "O365 SMTP token rotated"
@@ -227,8 +229,8 @@ pwsh ./scripts/Rotate-LXCA-O365SmtpToken.ps1 `
   -RotateToken `
   -AuthMode DelegatedRefresh `
   -MonitorId "<monitor-id>" `
-  -TenantId "<tenant-guid-or-name>" `
-  -ClientId "<app-guid>" `
+  -EntraTenantId "<tenant-guid-or-name>" `
+  -EntraClientId "<app-guid>" `
   -RefreshTokenPath "./delegated_refresh_token.txt" `
   -SmtpUser "alerts@yourdomain.com"
 ```
@@ -310,6 +312,58 @@ Use these scripts when operating in `DelegatedRefresh` mode:
   Requests device code, guides user sign-in, and saves refresh token.
 - `scripts/Get-DelegatedSmtpAccessToken.ps1`  
   Tests delegated refresh token exchange and optionally shows JWT claims.
+
+### `Bootstrap-DelegatedSmtp.ps1` usage
+
+Use this once (or whenever you need to re-consent) to obtain a delegated refresh token.
+
+```powershell
+pwsh ./scripts/Bootstrap-DelegatedSmtp.ps1 `
+  -EntraTenantId "<tenant-domain-or-guid>" `
+  -EntraClientId "<app-client-id-guid>" `
+  -Upn "smtpuser@yourdomain.com" `
+  -Verbose
+```
+
+Expected interactive output includes:
+
+- `Sign in as: <UPN>`
+- `Go to: https://login.microsoft.com/device`
+- `Enter code: <device-code>`
+
+After successful sign-in, the script writes a refresh token to `./delegated_refresh_token.txt` by default (or to `-OutFile` if specified).
+
+### `Get-DelegatedSmtpAccessToken.ps1` usage
+
+Use this to validate that the delegated refresh token can mint an SMTP access token.
+
+```powershell
+pwsh ./scripts/Get-DelegatedSmtpAccessToken.ps1 `
+  -EntraTenantId "<tenant-domain-or-guid>" `
+  -EntraClientId "<app-client-id-guid>" `
+  -RefreshTokenPath ./delegated_refresh_token.txt `
+  -ShowClaims `
+  -Verbose
+```
+
+Expected output includes:
+
+- token file path (default: `%TEMP%\\o365_token.jwt`)
+- `expires_in: <seconds>`
+- selected JWT claims (`aud`, `iss`, `tid`, `scp`, `roles`, `exp`) when `-ShowClaims` is used
+
+### `expires_in` vs `exp` (what each means)
+
+- `expires_in` is returned by the token endpoint and is a **relative lifetime** in seconds from the time the token was issued (for example, `5190` seconds).
+- `exp` is a JWT claim and is an **absolute Unix epoch timestamp** (UTC) for when the token expires.
+
+Both refer to the same expiration moment in different formats.
+
+Operational guidance:
+
+- Use `expires_in` for quick runtime checks/logging.
+- Use `exp` when correlating exact expiry time across systems/logs.
+- For unattended operation, rotate before expiry (for example every 45–55 minutes as noted above).
 
 ### Typical delegated bootstrap flow
 

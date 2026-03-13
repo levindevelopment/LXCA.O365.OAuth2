@@ -30,17 +30,23 @@ SECURITY
   - For Task Scheduler, prefer: SecretManagement, Windows Credential Manager, or a DPAPI-encrypted file.
 
 EXAMPLES
-  # Get all monitors (preferred)
-  .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaCredential (Get-Credential) -ListMonitors
+  # Get all monitors (preferred). Prompt shown by Get-Credential is for LXCA credentials.
+  .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaCredential (Get-Credential -Message "Enter LXCA credentials") -ListMonitors
+
+  # IMPORTANT: do not quote the expression, e.g. use (Get-Credential), not "(Get-Credential)".
+
+  # If launching pwsh from Windows PowerShell (powershell.exe), call Get-Credential inside pwsh
+  # so the PSCredential object is created in the same process:
+  # pwsh -NoProfile -Command '& ./scripts/Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaCredential (Get-Credential) -ListMonitors'
 
   # Backward-compatibility mode (discouraged)
   .\Rotate-LXCA-O365SmtpToken.ps1 -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaUser admin -LxcaPass "*****" -ListMonitors
 
   # Rotate token for a specific monitor id (updates token fields + description only)
   .\Rotate-LXCA-O365SmtpToken.ps1 `
-    -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaCredential (Get-Credential) `
+    -LxcaBaseUrl "https://<lxca-host-or-ip>" -LxcaCredential (Get-Credential -Message "Enter LXCA credentials") `
     -RotateToken -MonitorId "<monitor-id>" `
-    -TenantId "<tenant-guid>" -ClientId "<app-guid>" -ClientSecret "<secret>" `
+    -EntraTenantId "<tenant-guid>" -EntraClientId "<app-guid>" -ClientSecret "<secret>" `
     -SmtpUser "alerts@yourdomain.com"
 
   # Scheduled Task invocation (pwsh.exe)
@@ -53,7 +59,7 @@ param(
   # NOTE: These are NOT marked Mandatory so the file can be dot-sourced to import functions.
   # When running as a script (not dot-sourced), parameter validation is enforced in Main.
   [string] $LxcaBaseUrl,
-  [PSCredential] $LxcaCredential,
+  [object] $LxcaCredential,
 
   # Backward compatibility (discouraged)
   [string] $LxcaUser,
@@ -68,8 +74,8 @@ param(
   [string] $MonitorId,
 
   # --- O365 / Entra (required only when -RotateToken) ---
-  [string] $TenantId,
-  [string] $ClientId,
+  [string] $EntraTenantId,
+  [string] $EntraClientId,
   [string] $ClientSecret,
   [ValidateSet("AppOnly","DelegatedRefresh")] [string] $AuthMode = "AppOnly",
   [string] $RefreshTokenPath,
@@ -94,19 +100,19 @@ function Assert-Environment {
 
 function Get-O365AccessToken_AppOnly {
   param(
-    [Parameter(Mandatory)] [string] $TenantId,
-    [Parameter(Mandatory)] [string] $ClientId,
+    [Parameter(Mandatory)] [string] $EntraTenantId,
+    [Parameter(Mandatory)] [string] $EntraClientId,
     [Parameter(Mandatory)] [string] $ClientSecret
   )
 
   $body = @{
-    client_id     = $ClientId
+    client_id     = $EntraClientId
     client_secret = $ClientSecret
     grant_type    = "client_credentials"
     scope         = "https://outlook.office365.com/.default"
   }
 
-  $resp = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token" `
+  $resp = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$EntraTenantId/oauth2/v2.0/token" `
     -ContentType "application/x-www-form-urlencoded" -Body $body
 
   [pscustomobject]@{
@@ -118,8 +124,8 @@ function Get-O365AccessToken_AppOnly {
 
 function Get-O365AccessToken_DelegatedRefresh {
   param(
-    [Parameter(Mandatory)] [string] $TenantId,
-    [Parameter(Mandatory)] [string] $ClientId,
+    [Parameter(Mandatory)] [string] $EntraTenantId,
+    [Parameter(Mandatory)] [string] $EntraClientId,
     [Parameter(Mandatory)] [string] $RefreshTokenPath
   )
 
@@ -130,13 +136,13 @@ function Get-O365AccessToken_DelegatedRefresh {
   $refresh = Get-Content -LiteralPath $RefreshTokenPath -Raw
 
   $body = @{
-    client_id     = $ClientId
+    client_id     = $EntraClientId
     grant_type    = "refresh_token"
     refresh_token = $refresh
     scope         = "offline_access https://outlook.office.com/SMTP.Send"
   }
 
-  $resp = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token" `
+  $resp = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$EntraTenantId/oauth2/v2.0/token" `
     -ContentType "application/x-www-form-urlencoded" -Body $body
 
   [pscustomobject]@{
@@ -151,6 +157,18 @@ function ConvertTo-PlainText {
   $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secure)
   try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
   finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+}
+
+function Get-InvokeRestErrorMessage {
+  param(
+    [Parameter(Mandatory)] $ErrorRecord
+  )
+
+  if ($ErrorRecord.ErrorDetails -and -not [string]::IsNullOrWhiteSpace($ErrorRecord.ErrorDetails.Message)) {
+    return [string]$ErrorRecord.ErrorDetails.Message
+  }
+
+  return [string]$ErrorRecord.Exception.Message
 }
 
 function Connect-Lxca {
@@ -169,8 +187,15 @@ function Connect-Lxca {
   $passwordPlain = ConvertTo-PlainText -Secure $Credential.Password
   try {
     $loginBody = @{ UserId = $Credential.UserName; password = $passwordPlain } | ConvertTo-Json
-    $null = Invoke-RestMethod -Method Post -Uri ($BaseUrl.TrimEnd("/") + "/sessions") `
-      -ContentType "application/json; charset=UTF-8" -Body $loginBody -SessionVariable s -SkipCertificateCheck
+    try {
+      $null = Invoke-RestMethod -Method Post -Uri ($BaseUrl.TrimEnd("/") + "/sessions") `
+        -ContentType "application/json; charset=UTF-8" -Body $loginBody -SessionVariable s -SkipCertificateCheck
+    }
+    catch {
+      $serviceTarget = ($BaseUrl.TrimEnd("/") + "/sessions")
+      $detail = Get-InvokeRestErrorMessage -ErrorRecord $_
+      throw "Failed to authenticate to Lenovo XClarity Administrator (LXCA) login API at '$serviceTarget' using user '$($Credential.UserName)'. API error: $detail"
+    }
   }
   finally {
     $passwordPlain = $null
@@ -218,7 +243,11 @@ function Invoke-LxcaJson {
 }
 
 function Get-LxcaMonitor {
-  param([Parameter(Mandatory)] [pscustomobject] $Conn)
+  param(
+    [Parameter(Mandatory)] [pscustomobject] $Conn,
+    [switch] $EmailOnly,
+    [string] $NameLike
+  )
 
   $monitors = Invoke-LxcaJson -Conn $Conn -Method GET -Path "/events/monitors"
 
@@ -247,13 +276,24 @@ function Disconnect-Lxca {
 }
 
 function Update-LxcaToken {
-  param([Parameter(Mandatory)] [pscustomobject] $Conn)
+  [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+  param(
+    [Parameter(Mandatory)] [pscustomobject] $Conn,
+    [Parameter(Mandatory)] [string] $MonitorId,
+    [Parameter(Mandatory)] [string] $EntraTenantId,
+    [Parameter(Mandatory)] [string] $EntraClientId,
+    [string] $ClientSecret,
+    [ValidateSet("AppOnly","DelegatedRefresh")] [string] $AuthMode = "AppOnly",
+    [string] $RefreshTokenPath,
+    [Parameter(Mandatory)] [string] $SmtpUser,
+    [string] $DescriptionPrefix = "O365 token rotated"
+  )
 
   # Validate required params for token rotation
   foreach ($pair in @(
     @{Name="MonitorId"; Val=$MonitorId},
-    @{Name="TenantId";  Val=$TenantId},
-    @{Name="ClientId";  Val=$ClientId},
+    @{Name="EntraTenantId";  Val=$EntraTenantId},
+    @{Name="EntraClientId";  Val=$EntraClientId},
     @{Name="SmtpUser";  Val=$SmtpUser}
   )) {
     if ([string]::IsNullOrWhiteSpace([string]$pair.Val)) { throw "Missing -$($pair.Name) (required for -RotateToken)." }
@@ -268,9 +308,9 @@ function Update-LxcaToken {
   }
 
   $tok = if ($AuthMode -eq "DelegatedRefresh") {
-    Get-O365AccessToken_DelegatedRefresh -TenantId $TenantId -ClientId $ClientId -RefreshTokenPath $RefreshTokenPath
+    Get-O365AccessToken_DelegatedRefresh -EntraTenantId $EntraTenantId -EntraClientId $EntraClientId -RefreshTokenPath $RefreshTokenPath
   } else {
-    Get-O365AccessToken_AppOnly -TenantId $TenantId -ClientId $ClientId -ClientSecret $ClientSecret
+    Get-O365AccessToken_AppOnly -EntraTenantId $EntraTenantId -EntraClientId $EntraClientId -ClientSecret $ClientSecret
   }
   Write-Information ("Minted O365 token ({0}); expires UTC: {1}" -f $AuthMode, $tok.expires_at) -InformationAction Continue
 
@@ -282,7 +322,13 @@ function Update-LxcaToken {
   $m.passwordEmail       = $tok.access_token
 
   $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-  $m.description = "$DescriptionPrefix $stamp"
+  $expStamp = $tok.expires_at.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+  $m.description = "$DescriptionPrefix $stamp (exp $expStamp)"
+
+  if (-not $PSCmdlet.ShouldProcess("LXCA monitor $MonitorId", "Rotate O365 SMTP OAuth2 token and update monitor fields")) {
+    Write-Verbose "Skipped monitor update due to WhatIf/Confirm response."
+    return
+  }
 
   Invoke-LxcaJson -Conn $Conn -Method PUT -Path "/events/monitors/$MonitorId" -Body $m | Out-Null
 
@@ -299,15 +345,55 @@ function Update-LxcaToken {
   } | Format-List
 }
 
+function ConvertTo-SecureStringFromPlainText {
+  param([Parameter(Mandatory)] [string] $PlainText)
+
+  $secure = [Security.SecureString]::new()
+  foreach ($char in $PlainText.ToCharArray()) {
+    $secure.AppendChar($char)
+  }
+  $secure.MakeReadOnly()
+  return $secure
+}
+
 function Get-LxcaCredential {
-  if ($null -ne $LxcaCredential) { return $LxcaCredential }
+  param(
+    [object] $LxcaCredential,
+    [string] $LxcaUser,
+    [string] $LxcaPass
+  )
+
+  if ($null -ne $LxcaCredential) {
+    if ($LxcaCredential -is [PSCredential]) { return $LxcaCredential }
+
+    if ($LxcaCredential -is [string] -and -not [string]::IsNullOrWhiteSpace($LxcaCredential)) {
+      # Common when launching pwsh from Windows PowerShell with:
+      #   pwsh ./script.ps1 -LxcaCredential (Get-Credential)
+      # The object is marshaled as text across process boundaries.
+      $u = [string]$LxcaCredential
+      if ($u -eq "System.Management.Automation.PSCredential") { $u = $null }
+
+      Write-Information "-LxcaCredential was received as text (likely cross-process argument marshalling). Prompting for LXCA credentials in this pwsh session..." -InformationAction Continue
+      if ([string]::IsNullOrWhiteSpace($u)) {
+        return Get-Credential -Message "Enter LXCA credentials"
+      }
+      return Get-Credential -UserName $u -Message "Enter LXCA credentials"
+    }
+
+    throw "Unsupported -LxcaCredential value type: $($LxcaCredential.GetType().FullName). Pass a PSCredential object, or omit -LxcaCredential and let this script prompt."
+  }
+
+  if ([string]::IsNullOrWhiteSpace($LxcaUser) -and [string]::IsNullOrWhiteSpace($LxcaPass)) {
+    Write-Information "No LXCA credential supplied. Prompting for LXCA credentials..." -InformationAction Continue
+    return Get-Credential -Message "Enter LXCA credentials"
+  }
 
   if ([string]::IsNullOrWhiteSpace($LxcaUser) -or [string]::IsNullOrWhiteSpace($LxcaPass)) {
-    throw "Missing LXCA credentials. Provide -LxcaCredential (preferred), or legacy -LxcaUser and -LxcaPass."
+    throw "Provide both -LxcaUser and -LxcaPass, or use -LxcaCredential."
   }
 
   Write-Warning "Using legacy -LxcaUser/-LxcaPass plaintext parameters. Prefer -LxcaCredential."
-  $securePass = ConvertTo-SecureString -String $LxcaPass -AsPlainText -Force
+  $securePass = ConvertTo-SecureStringFromPlainText -PlainText $LxcaPass
   return [PSCredential]::new($LxcaUser, $securePass)
 }
 
@@ -322,16 +408,19 @@ function Main {
   }
 
   $conn = $null
-  $credential = Get-LxcaCredential
+  $credential = Get-LxcaCredential -LxcaCredential $LxcaCredential -LxcaUser $LxcaUser -LxcaPass $LxcaPass
+  Write-Information ("Using LXCA credential for user '{0}' against {1}." -f $credential.UserName, $LxcaBaseUrl) -InformationAction Continue
   try {
     $conn = Connect-Lxca -BaseUrl $LxcaBaseUrl -Credential $credential
 
     if ($ListMonitors) {
-      Get-LxcaMonitor -Conn $conn
+      Get-LxcaMonitor -Conn $conn -EmailOnly:$EmailOnly -NameLike $NameLike
       return
     }
     if ($RotateToken) {
-      Update-LxcaToken -Conn $conn
+      Update-LxcaToken -Conn $conn -MonitorId $MonitorId -EntraTenantId $EntraTenantId -EntraClientId $EntraClientId `
+        -ClientSecret $ClientSecret -AuthMode $AuthMode -RefreshTokenPath $RefreshTokenPath `
+        -SmtpUser $SmtpUser -DescriptionPrefix $DescriptionPrefix
       return
     }
   } finally {
