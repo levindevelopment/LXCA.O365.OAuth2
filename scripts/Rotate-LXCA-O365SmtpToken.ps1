@@ -322,7 +322,8 @@ function Update-LxcaToken {
   $m.passwordEmail       = $tok.access_token
 
   $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-  $m.description = "$DescriptionPrefix $stamp"
+  $expStamp = $tok.expires_at.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+  $m.description = "$DescriptionPrefix $stamp (exp $expStamp)"
 
   if (-not $PSCmdlet.ShouldProcess("LXCA monitor $MonitorId", "Rotate O365 SMTP OAuth2 token and update monitor fields")) {
     Write-Verbose "Skipped monitor update due to WhatIf/Confirm response."

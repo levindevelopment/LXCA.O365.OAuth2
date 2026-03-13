@@ -135,7 +135,9 @@ The wrapper script (`Run-LXCAO365RotateScheduled.ps1`) consumes a **non-secret J
 - `EntraTenantId` *(required)*: Microsoft Entra tenant identifier (GUID or tenant domain)
 - `EntraClientId` *(required)*: Microsoft Entra app registration client ID
 - `SmtpUser` *(required)*: mailbox identity used by LXCA SMTP OAuth2
-- `DescriptionPrefix` *(optional)*: stamp prefix in monitor description
+- `DescriptionPrefix` *(optional)*: stamp prefix in monitor description (default: `O365 token rotated`)
+  - Rotation description format: `<DescriptionPrefix> <rotation-utc-stamp> (exp <token-expiry-utc>)`
+  - Example: `O365 token rotated 2026-03-13T00:39:29Z (exp 2026-03-13T01:25:14Z)`
 - `ScriptPath` *(optional)*: override path to rotate script
 
 ### AppOnly config example (redacted)
@@ -304,6 +306,58 @@ Use these scripts when operating in `DelegatedRefresh` mode:
 - `scripts/Get-DelegatedSmtpAccessToken.ps1`  
   Tests delegated refresh token exchange and optionally shows JWT claims.
 
+### `Bootstrap-DelegatedSmtp.ps1` usage
+
+Use this once (or whenever you need to re-consent) to obtain a delegated refresh token.
+
+```powershell
+pwsh ./scripts/Bootstrap-DelegatedSmtp.ps1 `
+  -EntraTenantId "<tenant-domain-or-guid>" `
+  -EntraClientId "<app-client-id-guid>" `
+  -Upn "smtpuser@yourdomain.com" `
+  -Verbose
+```
+
+Expected interactive output includes:
+
+- `Sign in as: <UPN>`
+- `Go to: https://login.microsoft.com/device`
+- `Enter code: <device-code>`
+
+After successful sign-in, the script writes a refresh token to `./delegated_refresh_token.txt` by default (or to `-OutFile` if specified).
+
+### `Get-DelegatedSmtpAccessToken.ps1` usage
+
+Use this to validate that the delegated refresh token can mint an SMTP access token.
+
+```powershell
+pwsh ./scripts/Get-DelegatedSmtpAccessToken.ps1 `
+  -EntraTenantId "<tenant-domain-or-guid>" `
+  -EntraClientId "<app-client-id-guid>" `
+  -RefreshTokenPath ./delegated_refresh_token.txt `
+  -ShowClaims `
+  -Verbose
+```
+
+Expected output includes:
+
+- token file path (default: `%TEMP%\\o365_token.jwt`)
+- `expires_in: <seconds>`
+- selected JWT claims (`aud`, `iss`, `tid`, `scp`, `roles`, `exp`) when `-ShowClaims` is used
+
+### `expires_in` vs `exp` (what each means)
+
+- `expires_in` is returned by the token endpoint and is a **relative lifetime** in seconds from the time the token was issued (for example, `5190` seconds).
+- `exp` is a JWT claim and is an **absolute Unix epoch timestamp** (UTC) for when the token expires.
+
+Both refer to the same expiration moment in different formats.
+
+Operational guidance:
+
+- Use `expires_in` for quick runtime checks/logging.
+- Use `exp` when correlating exact expiry time across systems/logs.
+- For unattended operation, rotate before expiry (for example every 45–55 minutes as noted above).
+
 ### Typical delegated bootstrap flow
 
 1. In Entra app registration, enable public client flows.
@@ -320,4 +374,3 @@ Use these scripts when operating in `DelegatedRefresh` mode:
 - On read, LXCA may return `passwordEmail` as a secret reference/GUID.
 - On update, writing a new bearer token updates the secret value behind that reference.
 - Keep secrets and generated token files out of source control.
-
