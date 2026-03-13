@@ -7,19 +7,46 @@ param(
   [switch] $ShowClaims
 )
 
-$refresh = Get-Content $RefreshTokenPath -Raw
+function Get-InvokeRestErrorMessage {
+  param([Parameter(Mandatory)] $ErrorRecord)
 
-$tok = Invoke-RestMethod -Method Post `
-  -Uri "https://login.microsoftonline.com/$EntraTenantId/oauth2/v2.0/token" `
-  -Body @{
-    client_id     = $EntraClientId
-    grant_type    = "refresh_token"
-    refresh_token = $refresh
-    scope         = "offline_access https://outlook.office.com/SMTP.Send"
+  if ($ErrorRecord.ErrorDetails -and -not [string]::IsNullOrWhiteSpace($ErrorRecord.ErrorDetails.Message)) {
+    return [string]$ErrorRecord.ErrorDetails.Message
   }
 
+  return [string]$ErrorRecord.Exception.Message
+}
+
+try {
+  $refresh = (Get-Content -LiteralPath $RefreshTokenPath -Raw).Trim()
+} catch {
+  throw "Failed to read refresh token from '$RefreshTokenPath'. $_"
+}
+
+if ([string]::IsNullOrWhiteSpace($refresh)) {
+  throw "Refresh token file '$RefreshTokenPath' is empty."
+}
+
+try {
+  $tok = Invoke-RestMethod -Method Post `
+    -Uri "https://login.microsoftonline.com/$EntraTenantId/oauth2/v2.0/token" `
+    -Body @{
+      client_id     = $EntraClientId
+      grant_type    = "refresh_token"
+      refresh_token = $refresh
+      scope         = "offline_access https://outlook.office.com/SMTP.Send"
+    }
+} catch {
+  $detail = Get-InvokeRestErrorMessage -ErrorRecord $_
+  throw "Failed to acquire delegated SMTP access token for tenant '$EntraTenantId' and app '$EntraClientId'. API error: $detail"
+}
+
 # Write access token to file (no console dump)
-$tok.access_token | Set-Content -NoNewline -Encoding ascii $OutTokenPath
+try {
+  $tok.access_token | Set-Content -LiteralPath $OutTokenPath -NoNewline -Encoding ascii
+} catch {
+  throw "Failed to write delegated SMTP access token to '$OutTokenPath'. $_"
+}
 
 # Print only safe metadata
 Write-Information "Wrote access token to: $OutTokenPath" -InformationAction Continue
@@ -35,6 +62,10 @@ if ($ShowClaims) {
     $json | ConvertFrom-Json
   }
 
-  $claims = ConvertFrom-JwtPayload $tok.access_token
+  try {
+    $claims = ConvertFrom-JwtPayload $tok.access_token
+  } catch {
+    throw "Failed to decode JWT claims from delegated SMTP access token. $_"
+  }
   $claims | Select-Object aud, iss, tid, scp, roles, exp | Format-List
 }

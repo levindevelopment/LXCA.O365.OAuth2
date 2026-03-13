@@ -6,15 +6,31 @@ param(
   [string] $OutFile = ".\delegated_refresh_token.txt"
 )
 
+
+function Get-InvokeRestErrorMessage {
+  param([Parameter(Mandatory)] $ErrorRecord)
+
+  if ($ErrorRecord.ErrorDetails -and -not [string]::IsNullOrWhiteSpace($ErrorRecord.ErrorDetails.Message)) {
+    return [string]$ErrorRecord.ErrorDetails.Message
+  }
+
+  return [string]$ErrorRecord.Exception.Message
+}
+
 $scope = "offline_access https://outlook.office.com/SMTP.Send"
 
 # 1) Request device code
-$dc = Invoke-RestMethod -Method Post `
-  -Uri "https://login.microsoftonline.com/$EntraTenantId/oauth2/v2.0/devicecode" `
-  -Body @{
-    client_id = $EntraClientId
-    scope     = $scope
-  }
+try {
+  $dc = Invoke-RestMethod -Method Post `
+    -Uri "https://login.microsoftonline.com/$EntraTenantId/oauth2/v2.0/devicecode" `
+    -Body @{
+      client_id = $EntraClientId
+      scope     = $scope
+    }
+} catch {
+  $detail = Get-InvokeRestErrorMessage -ErrorRecord $_
+  throw "Failed to start device-code flow for tenant '$EntraTenantId' and app '$EntraClientId'. API error: $detail"
+}
 
 Write-Information "" -InformationAction Continue
 Write-Information "Sign in as: $Upn" -InformationAction Continue
@@ -37,7 +53,11 @@ while ((Get-Date) -lt $deadline) {
 
   if ($status -eq 200 -and $tok) {
     if ($tok.refresh_token) {
-      Set-Content -Path $OutFile -Value $tok.refresh_token -NoNewline -Encoding ascii
+      try {
+        Set-Content -LiteralPath $OutFile -Value $tok.refresh_token -NoNewline -Encoding ascii
+      } catch {
+        throw "Failed to write delegated refresh token to '$OutFile'. $_"
+      }
       Write-Information "Saved refresh token to $OutFile" -InformationAction Continue
       Write-Information "Access token expires_in: $($tok.expires_in)" -InformationAction Continue
       return
@@ -55,6 +75,10 @@ while ((Get-Date) -lt $deadline) {
     client_id   = $EntraClientId
     device_code = $dc.device_code
   } -SkipHttpErrorCheck -ErrorAction SilentlyContinue
+
+  if (-not $w) {
+    throw "Device-code polling failed with no response."
+  }
 
   $raw = $w.Content
   try {

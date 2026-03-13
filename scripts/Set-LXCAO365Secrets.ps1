@@ -83,6 +83,10 @@ if ($IncludeDelegatedRefreshToken) {
 $dir = Split-Path -Parent $OutFile
 if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
 
-$secrets | Export-Clixml -LiteralPath $OutFile
+try {
+  $secrets | Export-Clixml -LiteralPath $OutFile
+} catch {
+  throw "Failed to write secrets file '$OutFile'. $_"
+}
 Write-Information "Wrote secrets to: $OutFile" -InformationAction Continue
 Write-Information "DPAPI scope: CurrentUser (scheduled task must run under same user profile)." -InformationAction Continue
