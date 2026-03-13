@@ -39,8 +39,17 @@ function SecureStringToPlainText {
 if (-not (Test-Path -LiteralPath $ConfigPath)) { throw "ConfigPath not found: $ConfigPath" }
 if (-not (Test-Path -LiteralPath $SecretsPath)) { throw "SecretsPath not found: $SecretsPath" }
 
-$config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
-$secrets = Import-Clixml -LiteralPath $SecretsPath
+try {
+  $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+} catch {
+  throw "Failed to load/parse config JSON at '$ConfigPath'. $_"
+}
+
+try {
+  $secrets = Import-Clixml -LiteralPath $SecretsPath
+} catch {
+  throw "Failed to load secrets XML at '$SecretsPath'. $_"
+}
 
 $authMode = if ($config.AuthMode) { [string]$config.AuthMode } else { "AppOnly" }
 $entraTenantId = [string]$config.EntraTenantId
@@ -89,7 +98,11 @@ try {
     $rt = SecureStringToPlainText (DpapiStringToSecureString $secrets.DelegatedRefreshTokenDpapi)
 
     $tmpRtPath = Join-Path $env:TEMP ("delegated_refresh_token_" + [guid]::NewGuid().ToString("N") + ".txt")
-    Set-Content -LiteralPath $tmpRtPath -Value $rt -NoNewline -Encoding ascii
+    try {
+      Set-Content -LiteralPath $tmpRtPath -Value $rt -NoNewline -Encoding ascii
+    } catch {
+      throw "Failed to write temporary refresh token file '$tmpRtPath'. $_"
+    }
 
     # lock down ACL (best effort)
     try {
@@ -109,7 +122,11 @@ try {
     throw "Unsupported AuthMode '$authMode'. Use 'AppOnly' or 'DelegatedRefresh'."
   }
 
-  & $scriptPath @rotateArgs
+  try {
+    & $scriptPath @rotateArgs
+  } catch {
+    throw "Rotate script invocation failed for '$scriptPath'. $_"
+  }
 }
 finally {
   if ($tmpRtPath -and (Test-Path -LiteralPath $tmpRtPath)) {
